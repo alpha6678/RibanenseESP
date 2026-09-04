@@ -396,6 +396,7 @@ static void http_cfg(esp_http_client_config_t *c, const char *url, int timeout_m
     c->user_agent = HTTP_UA;
     c->disable_auto_redirect = true;
     c->buffer_size = 2048;
+    c->buffer_size_tx = 2048;
     if (strncmp(url, "https://", 8) == 0) {
         c->transport_type = HTTP_TRANSPORT_OVER_SSL;
         c->tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_2;
