@@ -1,0 +1,28 @@
+# Publicacao local
+artifacts/
+
+# IDE
+.vs/
+*.user
+*.suo
+
+# Logs e temporarios
+*.log
+*.tmp
+
+# Pasta local de IA (insumo de desenvolvimento, nao versionada)
+IA/
+
+# Segredos locais (token/chave de assinatura — nunca versionar)
+.env
+.env.*
+!.env.example
+
+
+# ESP-IDF (RibanenseESP)
+firmware/backup-fabrica/
+firmware/ribanense-esp/build/
+firmware/ribanense-esp/managed_components/
+firmware/ribanense-esp/sdkconfig
+firmware/ribanense-esp/sdkconfig.old
+firmware/ribanense-esp/dependencies.lock

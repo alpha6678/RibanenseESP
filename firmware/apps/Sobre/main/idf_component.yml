@@ -1,0 +1,4 @@
+## Sobre — app nativo da placa
+dependencies:
+  lvgl/lvgl:
+    version: "^9.2.0"

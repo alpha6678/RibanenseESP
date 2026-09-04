@@ -1,0 +1,12 @@
+{
+  "id": "com.ribanense.esp.sobre",
+  "name": "Sobre",
+  "publicName": "Sobre",
+  "version": "0.1.2",
+  "minimumOsVersion": "0.0.2",
+  "entryBinary": "app.bin",
+  "category": "Sistema",
+  "githubTagPrefix": "esp-sobre-v"
+}
+
+

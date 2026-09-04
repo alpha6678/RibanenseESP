@@ -1,0 +1,4 @@
+## RibanenseESP — dependências do main component
+dependencies:
+  lvgl/lvgl:
+    version: "^9.2.0"
