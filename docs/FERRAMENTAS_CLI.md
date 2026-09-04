@@ -20,14 +20,15 @@ CLI deste repositório (firmware RibanenseESP). Não há solution .NET aqui.
 | Comando | Sinônimos | Ação |
 |---------|-----------|------|
 | `help` | `?`, `-h` | Ajuda. |
-| `doctor` | — | Confere IDF, `gh`, conta ativa (`alpha6678`), openssl, chave e URLs. |
+| `doctor` | — | Confere IDF, CH340, `gh`, openssl, chave e URLs. Conta GitHub errada só avisa. |
 | `version` | `versao` | Versão do OS (`version.json`) e dos apps. |
 | `list` | `ls`, `apps` | Lista OS e apps em `firmware/apps`. |
+| `ports` | `portas`, `com` | Lista COMx; marca a CH340 da E32R28T-1. |
 | `build` | `compilar`, `os build` | Espelha para `C:\fw` e `idf.py build`. |
-| `flash [COM]` | `gravar`, `os flash` | Primeiro flash / recuperação via USB (default `COM8`). |
-| `monitor [COM]` | `os monitor` | Serial do IDF. |
+| `flash [COM] [--primeiro]` | `gravar`, `primeiro` | Compila e grava o OS. Sem porta, detecta a CH340. `--primeiro` apaga a flash antes. |
+| `monitor [COM]` | `os monitor` | Serial do IDF, sem recompilar. |
 | `app build <Slug>` | `os app build` | Compila um app da placa. |
-| `app flash <Slug> [COM]` | — | Grava o app (recuperação). |
+| `app flash <Slug> [COM]` | — | Grava o app **no chip** (substitui o OS). Apps normais vão no microSD. |
 | `bump os\|<Slug> [patch\|minor\|major]` | — | Atualiza `version.json` ou `app.json`. |
 | `publish os\|<Slug>\|all` | `empacotar` | Pacote local, ou detecta mudanças e publica (`--dry-run`, `-Yes`). |
 | `release os\|<Slug> <semver>` | `os release` | Tag + `gh release` + manifesto assinado. |
@@ -40,15 +41,34 @@ CLI deste repositório (firmware RibanenseESP). Não há solution .NET aqui.
 ```bat
 rbesp help
 rbesp doctor
-rbesp build
-rbesp flash COM8
-rbesp monitor COM8
+rbesp ports
+rbesp flash --primeiro
+rbesp monitor
 rbesp bump os patch
 rbesp publish all --dry-run
 rbesp os release 0.3.6
 rbesp app build Sobre
 gh auth switch --user alpha6678
 ```
+
+## Flash inicial (USB-C)
+
+A placa fala com o PC pelo CH340 (`USB\VID_1A86`). Porta: argumento `COMx`,
+senão `RIBANENSE_PORT`, senão a única CH340 detectada. Bluetooth (COM3–7)
+é ignorado.
+
+`rbesp flash --primeiro` (ou `rbesp primeiro`):
+
+1. Espelha OS + SDK para `C:\fw`.
+2. `idf.py erase-flash` — apaga NVS, otadata e os dois slots.
+3. `idf.py flash` — bootloader, tabela de partições (nvs / otadata / ota_0 / ota_1) e o OS em `ota_0`.
+
+Sem `--primeiro`, só atualiza bootloader + partições + app e **mantém** o NVS
+(Wi-Fi). `monitor` só abre o serial; não recompila.
+
+Depois do boot: `app_main` inicia NVS, OTA, placa, microSD, Wi-Fi e UI.
+O slot só é marcado válido após ~30 s (`ota_health_tick`). OTA por GitHub
+só depois desta imagem USB (URLs `alpha6678/RibanenseESP` + pubkey).
 
 ## Versão e assinatura
 

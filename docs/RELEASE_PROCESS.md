@@ -70,7 +70,7 @@ próxima reinicialização volta ao slot anterior.
 
 A placa que ainda aponta para o repositório antigo (`BananaSuisa`) **não**
 enxerga releases novos. A primeira gravação desta linha é por USB
-(`rbesp flash COM8`).
+(`rbesp flash --primeiro`).
 
 ## Rate limits
 

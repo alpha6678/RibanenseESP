@@ -7,9 +7,9 @@ Com STA + IP: `GET /status`, `POST /update` (chave `X-Ribanense-Key`),
 **Atualizar** (OS) e **Catalogo** (apps no microSD).
 
 ```bat
-rb os build
-rb os publish
-rb os flash COM8
+rbesp build
+rbesp flash --primeiro
+rbesp monitor
 ```
 
 ```bat

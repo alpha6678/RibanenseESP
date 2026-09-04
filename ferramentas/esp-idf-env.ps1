@@ -78,6 +78,71 @@ function Invoke-IdfBuild {
     }
 }
 
+function Get-RibanenseSerialPorts {
+    $list = @()
+    $devs = @()
+    try {
+        $devs = @(Get-PnpDevice -Class Ports -Status OK -ErrorAction Stop)
+    } catch {
+        return @()
+    }
+    foreach ($d in $devs) {
+        if ($d.FriendlyName -notmatch '\((COM\d+)\)') {
+            continue
+        }
+        $port = $Matches[1]
+        $id = [string] $d.InstanceId
+        $name = [string] $d.FriendlyName
+        $isBoard = ($name -match 'CH340|CP210|USB-SERIAL|USB Serial') -or
+            ($id -match 'VID_1A86|VID_10C4|VID_303A')
+        $list += [pscustomobject]@{
+            Port    = $port
+            Name    = $name
+            Board   = [bool] $isBoard
+            Usb     = ($id -match '^USB\\')
+        }
+    }
+    return $list
+}
+
+function Resolve-RibanensePort {
+    param([string] $Requested)
+    if ($Requested -match '^COM\d+$') {
+        return $Requested.ToUpperInvariant()
+    }
+    if ($env:RIBANENSE_PORT -match '^COM\d+$') {
+        return $env:RIBANENSE_PORT.ToUpperInvariant()
+    }
+    $ports = @(Get-RibanenseSerialPorts)
+    $board = @($ports | Where-Object { $_.Board })
+    if ($board.Count -eq 1) {
+        return $board[0].Port
+    }
+    if ($board.Count -gt 1) {
+        $names = ($board | ForEach-Object { "$($_.Port) ($($_.Name))" }) -join ', '
+        throw "Varias placas USB: $names. Passe a porta: rbesp flash COM8"
+    }
+    $extra = ($ports | ForEach-Object { $_.Port }) -join ', '
+    if ($extra) {
+        throw "Nenhuma CH340/USB-SERIAL. Conecte o USB-C da E32R28T-1. Outras portas: $extra"
+    }
+    throw "Nenhuma porta serial. Conecte o USB-C da E32R28T-1 (CH340)."
+}
+
+function Sync-OsMirror {
+    param([Parameter(Mandatory)] [string] $ProjectRoot)
+    $mirror = Get-IdfMirrorRoot
+    $osSrc = Join-Path $ProjectRoot 'firmware\ribanense-esp'
+    $sdkSrc = Join-Path $ProjectRoot 'firmware\esp-sdk'
+    Write-Host "Espelhando OS para $mirror ..." -ForegroundColor Cyan
+    Invoke-RobocopyMirror -Source $osSrc -Destination (Join-Path $mirror 'ribanense-esp')
+    Invoke-RobocopyMirror -Source $sdkSrc -Destination (Join-Path $mirror 'esp-sdk')
+    Copy-OsVersionJsonToSdk -ProjectRoot $ProjectRoot -SdkDest (Join-Path $mirror 'esp-sdk')
+    $osMirror = Join-Path $mirror 'ribanense-esp'
+    Sync-IdfSdkconfigFromDefaults -ProjectDir $osMirror
+    return $osMirror
+}
+
 function Get-OsVersionPath {
     param([Parameter(Mandatory)] [string] $ProjectRoot)
     return (Join-Path $ProjectRoot 'firmware\ribanense-esp\version.json')

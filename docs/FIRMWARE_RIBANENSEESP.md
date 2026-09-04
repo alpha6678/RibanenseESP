@@ -124,6 +124,10 @@ inválida (ECDSA P-256 sobre `produto|versao|sha256`). URL do manifesto:
 
 `https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/firmware/ribanense-esp/firmware.json`
 
+O HTTPS do GitHub exige `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384`. Com 4096 o
+handshake cai em `-0x7200` (`MBEDTLS_ERR_SSL_INVALID_RECORD`) depois de
+“Certificate verified”.
+
 A imagem nova só é marcada válida ~30 s após a UI subir
 (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`). Se travar no boot, volta ao
 slot anterior.
@@ -131,7 +135,7 @@ slot anterior.
 Assets: `ribanense-esp-<ver>.bin` + `.sha256`. `rbesp os release`
 preenche `url`/`sha256`/`sig`. A placa que ainda busca o repositório
 antigo não vê releases novos — primeiro flash por USB
-(`rbesp flash COM8`). O `publish all` nunca grava cabo nem LAN.
+(`rbesp flash --primeiro`). O `publish all` nunca grava cabo nem LAN.
 
 ## Apps no microSD
 
@@ -188,7 +192,15 @@ python -X utf8 %IDF_PATH%\tools\idf.py build
 python -X utf8 %IDF_PATH%\tools\idf.py -p COMx flash
 ```
 
-No laboratório a ponte CH340 desta unidade apareceu em **COM8**
+Pelo CLI (detecta a CH340; `--primeiro` apaga a flash):
+
+```bat
+rbesp ports
+rbesp flash --primeiro
+rbesp monitor
+```
+
+No laboratório a ponte CH340 desta unidade costuma aparecer em **COM8**
 (`USB-SERIAL CH340`). O `build_idf.bat` na pasta do firmware configura o
 ambiente automaticamente.
 

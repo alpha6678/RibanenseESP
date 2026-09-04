@@ -50,8 +50,9 @@ Docs: [`docs/FIRMWARE_RIBANENSEESP.md`](docs/FIRMWARE_RIBANENSEESP.md),
 .\rbesp.cmd help
 .\rbesp.cmd doctor
 .\rbesp.cmd build
-.\rbesp.cmd flash COM8
-.\rbesp.cmd monitor COM8
+.\rbesp.cmd ports
+.\rbesp.cmd flash --primeiro
+.\rbesp.cmd monitor
 .\rbesp.cmd bump os patch
 .\rbesp.cmd publish all --dry-run
 .\rbesp.cmd os release 0.3.6

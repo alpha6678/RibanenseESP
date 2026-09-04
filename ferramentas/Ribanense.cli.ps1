@@ -24,14 +24,15 @@ Uso:  rbesp <comando> [args]
 
 Comandos:
   help                         Esta ajuda
-  doctor                       Confere IDF, gh, conta, chave e URLs
+  doctor                       Confere IDF, porta USB, gh, chave e URLs
   version                      Mostra versoes do OS e dos apps
   list                         Lista OS e apps da placa
+  ports                        Lista portas seriais (marca a CH340)
   build                        Compila o OS (espelho C:\fw)
-  flash [COM]                  Compila e grava o OS (default COM8)
-  monitor [COM]                Serial do IDF (default COM8)
+  flash [COM] [--primeiro]     Compila e grava o OS (detecta CH340)
+  monitor [COM]                Serial do IDF, sem recompilar
   app build <Slug>             Compila um app em firmware/apps
-  app flash <Slug> [COM]       Grava o app (recuperacao)
+  app flash <Slug> [COM]       Grava o app no chip (substitui o OS)
   bump os|<Slug> [patch|minor|major]
   publish os|<Slug>|all [--dry-run] [-Yes]
   release os|<Slug> <semver>
@@ -42,7 +43,12 @@ Comandos:
   clean                        Remove artifacts/
   install [user|session]       Shim rbesp/rb no PATH
 
+Primeiro USB (placa nova ou recuperacao):
+  rbesp ports
+  rbesp flash --primeiro
+
 Aliases: os=esp, build=compilar, flash=gravar, publish=empacotar, list=ls
+Porta: argumento COMx, senao RIBANENSE_PORT, senao CH340 detectada.
 Conta GitHub para release: gh auth switch --user alpha6678
 "@ | Write-Host
 }
@@ -104,16 +110,56 @@ function Test-ChangedSinceTag {
 
 function Invoke-OsMirrorBuild {
     param([string[]] $IdfArgs = @('build'))
-    $mirror = Get-IdfMirrorRoot
-    $osSrc = Join-Path $ProjectRoot 'firmware\ribanense-esp'
-    $sdkSrc = Join-Path $ProjectRoot 'firmware\esp-sdk'
-    Write-Host "Espelhando OS para $mirror ..." -ForegroundColor Cyan
-    Invoke-RobocopyMirror -Source $osSrc -Destination (Join-Path $mirror 'ribanense-esp')
-    Invoke-RobocopyMirror -Source $sdkSrc -Destination (Join-Path $mirror 'esp-sdk')
-    Copy-OsVersionJsonToSdk -ProjectRoot $ProjectRoot -SdkDest (Join-Path $mirror 'esp-sdk')
-    $osMirror = Join-Path $mirror 'ribanense-esp'
-    Sync-IdfSdkconfigFromDefaults -ProjectDir $osMirror
+    $osMirror = Sync-OsMirror -ProjectRoot $ProjectRoot
     Invoke-IdfBuild -ProjectDir $osMirror -ExtraArgs $IdfArgs
+}
+
+function Show-SerialPorts {
+    $ports = @(Get-RibanenseSerialPorts)
+    if ($ports.Count -eq 0) {
+        Write-Host "Nenhuma porta serial. Conecte o USB-C da E32R28T-1 (CH340)."
+        return
+    }
+    foreach ($p in $ports) {
+        $mark = if ($p.Board) { 'PLACA' } else { '    ' }
+        $color = if ($p.Board) { 'Green' } else { 'DarkGray' }
+        Write-Host ("{0}  {1,-6}  {2}" -f $mark, $p.Port, $p.Name) -ForegroundColor $color
+    }
+}
+
+function Get-FlashOptions {
+    param([string[]] $Items)
+    $port = $null
+    $erase = $false
+    foreach ($a in @($Items)) {
+        if ($a -match '^COM\d+$') { $port = $a; continue }
+        if ($a -in @('--primeiro', '--first', '--erase', '-e')) { $erase = $true; continue }
+    }
+    [pscustomobject]@{ Port = $port; Erase = $erase }
+}
+
+function Invoke-OsFlash {
+    param([string] $Port, [switch] $Erase)
+    $port = Resolve-RibanensePort $Port
+    if ($Erase) {
+        Write-Host "Flash inicial em $port — apaga a flash e grava bootloader + particoes + OS." -ForegroundColor Cyan
+        Write-Host "NVS e Wi-Fi da placa somem. OTA so funciona depois deste USB." -ForegroundColor Yellow
+        Invoke-OsMirrorBuild -IdfArgs @('-p', $port, 'erase-flash', 'flash')
+    } else {
+        Write-Host "Gravando OS em $port (bootloader + particoes + app, sem apagar NVS)." -ForegroundColor Cyan
+        Invoke-OsMirrorBuild -IdfArgs @('-p', $port, 'flash')
+    }
+}
+
+function Invoke-OsMonitor {
+    param([string] $Port)
+    $port = Resolve-RibanensePort $Port
+    $osMirror = Join-Path (Get-IdfMirrorRoot) 'ribanense-esp'
+    if (-not (Test-Path -LiteralPath (Join-Path $osMirror 'build_idf.bat'))) {
+        $osMirror = Sync-OsMirror -ProjectRoot $ProjectRoot
+    }
+    Write-Host "Monitor $port (sem rebuild). Ctrl+] para sair." -ForegroundColor Cyan
+    Invoke-IdfBuild -ProjectDir $osMirror -ExtraArgs @('-p', $port, 'monitor')
 }
 
 function Invoke-AppMirrorBuild {
@@ -152,8 +198,15 @@ function Invoke-Doctor {
         if (-not $login) { $login = $active }
         Write-Host "[..] gh ativo: $login" -ForegroundColor Cyan
         if ($login -and $login -ne 'alpha6678') {
-            Write-Host "[!!] Conta ativa nao e alpha6678. Antes de publish/release: gh auth switch --user alpha6678" -ForegroundColor Yellow
-            $script:ok = $false
+            Write-Host "[..] gh ativo e $login. Flash USB nao depende disso. Publish/release: gh auth switch --user alpha6678" -ForegroundColor Yellow
+        }
+    }
+    $ports = @(Get-RibanenseSerialPorts | Where-Object { $_.Board })
+    if ($ports.Count -eq 0) {
+        Write-Host "[..] Nenhuma CH340. Conecte o USB-C para flash inicial." -ForegroundColor Yellow
+    } else {
+        foreach ($p in $ports) {
+            Note $true "Placa USB $($p.Port) — $($p.Name)"
         }
     }
     $key = Get-SigningKeyPath -ProjectRoot $ProjectRoot
@@ -362,11 +415,6 @@ function Invoke-Install {
     & (Join-Path $ScriptRoot 'install-rb-command.ps1') -Scope $(if ($Scope -eq 'session') { 'Session' } else { 'User' })
 }
 
-function Get-DefaultPort([string] $Maybe) {
-    if ($Maybe -and $Maybe -match '^COM\d+$') { return $Maybe }
-    return 'COM8'
-}
-
 $tokens = @($CliArgs | Where-Object { $_ -ne $null -and "$_" -ne '' })
 if ($tokens.Count -eq 0) { Show-Help; exit 0 }
 
@@ -387,7 +435,12 @@ if ($t0 -in @('os', 'esp', 'ribanenseesp')) {
         $more = @($rest | Select-Object -Skip 2)
         switch ($act) {
             { $_ -in @('build', 'compilar') } { Invoke-AppMirrorBuild -Slug $slug; break }
-            { $_ -in @('flash', 'gravar') } { Invoke-AppMirrorBuild -Slug $slug -IdfArgs @('-p', (Get-DefaultPort $more[0]), 'flash'); break }
+            { $_ -in @('flash', 'gravar') } {
+                $opt = Get-FlashOptions $more
+                Write-Host "Isto substitui o OS no chip pelo app $slug." -ForegroundColor Yellow
+                Invoke-AppMirrorBuild -Slug $slug -IdfArgs @('-p', (Resolve-RibanensePort $opt.Port), 'flash')
+                break
+            }
             { $_ -in @('publish', 'empacotar', 'pack') } { & (Join-Path $ScriptRoot 'publish-esp-app.ps1') -App $slug @more; break }
             { $_ -in @('release', 'soltar') } {
                 if (-not $more[0]) { throw "Uso: rbesp os app release <Slug> <semver>" }
@@ -407,7 +460,12 @@ if ($t0 -eq 'app') {
     $more = @($rest | Select-Object -Skip 2)
     switch ($act) {
         { $_ -in @('build', 'compilar') } { Invoke-AppMirrorBuild -Slug $slug; break }
-        { $_ -in @('flash', 'gravar') } { Invoke-AppMirrorBuild -Slug $slug -IdfArgs @('-p', (Get-DefaultPort $more[0]), 'flash'); break }
+        { $_ -in @('flash', 'gravar') } {
+            $opt = Get-FlashOptions $more
+            Write-Host "Isto substitui o OS no chip pelo app $slug." -ForegroundColor Yellow
+            Invoke-AppMirrorBuild -Slug $slug -IdfArgs @('-p', (Resolve-RibanensePort $opt.Port), 'flash')
+            break
+        }
         { $_ -in @('publish', 'empacotar', 'pack') } { & (Join-Path $ScriptRoot 'publish-esp-app.ps1') -App $slug; break }
         { $_ -in @('release', 'soltar') } {
             if (-not $more[0]) { throw "Uso: rbesp app release <Slug> <semver>" }
@@ -424,8 +482,16 @@ switch ($t0) {
     { $_ -in @('version', 'versao') } { Invoke-ShowVersions }
     { $_ -in @('list', 'ls', 'apps') } { Invoke-List }
     { $_ -in @('build', 'compilar') } { Invoke-OsMirrorBuild }
-    { $_ -in @('flash', 'gravar') } { Invoke-OsMirrorBuild -IdfArgs @('-p', (Get-DefaultPort $rest[0]), 'flash') }
-    'monitor' { Invoke-OsMirrorBuild -IdfArgs @('-p', (Get-DefaultPort $rest[0]), 'monitor') }
+    { $_ -in @('ports', 'portas', 'com') } { Show-SerialPorts }
+    { $_ -in @('flash', 'gravar', 'primeiro') } {
+        $opt = Get-FlashOptions $rest
+        $erase = $opt.Erase -or ($t0 -eq 'primeiro')
+        Invoke-OsFlash -Port $opt.Port -Erase:$erase
+    }
+    'monitor' {
+        $opt = Get-FlashOptions $rest
+        Invoke-OsMonitor -Port $opt.Port
+    }
     'bump' {
         if (-not $rest[0]) { throw "Uso: rbesp bump os|<Slug> [patch|minor|major]" }
         $part = if ($rest[1]) { $rest[1] } else { 'patch' }

@@ -160,6 +160,7 @@ static void http_fill(esp_http_client_config_t *c, const char *url, int timeout_
     c->buffer_size = 2048;
     if (strncmp(url, "https://", 8) == 0) {
         c->transport_type = HTTP_TRANSPORT_OVER_SSL;
+        c->tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_2;
     }
 }
 
@@ -188,6 +189,7 @@ static esp_err_t http_get_text(const char *url, char *out, int cap)
         .disable_auto_redirect = true,
         .buffer_size = 2048,
         .transport_type = HTTP_TRANSPORT_OVER_SSL,
+        .tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_2,
     };
     esp_http_client_handle_t cli = esp_http_client_init(&c);
     if (cli == NULL) {
