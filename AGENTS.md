@@ -56,6 +56,7 @@ Docs: [`docs/FIRMWARE_RIBANENSEESP.md`](docs/FIRMWARE_RIBANENSEESP.md),
 .\rbesp.cmd build
 .\rbesp.cmd ports
 .\rbesp.cmd flash --primeiro
+.\rbesp.cmd flash --zero
 .\rbesp.cmd monitor
 .\rbesp.cmd bump os patch
 .\rbesp.cmd publish all --dry-run
@@ -85,5 +86,6 @@ já usam `alpha6678` sem trocar o `gh` padrão do PC.
 - [`docs/ESP_APP_SDK.md`](docs/ESP_APP_SDK.md)
 - [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md)
 - [`docs/FERRAMENTAS_CLI.md`](docs/FERRAMENTAS_CLI.md)
+- [`docs/RBESP_COMANDOS.md`](docs/RBESP_COMANDOS.md)
 - [`hardware/README.md`](hardware/README.md)
 - [`docs/FIRMWARE_RIBANENSEESP.md`](docs/FIRMWARE_RIBANENSEESP.md)

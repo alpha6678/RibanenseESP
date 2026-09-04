@@ -9,6 +9,7 @@ CLI deste repositório (firmware RibanenseESP). Não há solution .NET aqui.
 | [`rbesp.cmd`](../rbesp.cmd) | Atalho na raiz. |
 | [`ferramentas/Ribanense.cmd`](../ferramentas/Ribanense.cmd) | Prefere `pwsh`; senão Windows PowerShell 5.1. |
 | [`ferramentas/Ribanense.cli.ps1`](../ferramentas/Ribanense.cli.ps1) | Comandos. |
+| [`ferramentas/nvs-factory-wipe.csv`](../ferramentas/nvs-factory-wipe.csv) | NVS de `rbesp flash --zero` (`wipe_sd`). |
 | [`ferramentas/esp-idf-env.ps1`](../ferramentas/esp-idf-env.ps1) | Espelho `C:\fw`, IDF, versão, assinatura. |
 | [`ferramentas/publish-os.ps1`](../ferramentas/publish-os.ps1) | Compila o OS e gera `.bin` + SHA256. |
 | [`ferramentas/publish-esp-app.ps1`](../ferramentas/publish-esp-app.ps1) | Compila um app da placa e gera zip store. |
@@ -26,8 +27,8 @@ CLI deste repositório (firmware RibanenseESP). Não há solution .NET aqui.
 | `list` | `ls`, `apps` | Lista OS e apps em `firmware/apps`. |
 | `ports` | `portas`, `com` | Lista COMx; marca a CH340 da E32R28T-1. |
 | `build` | `compilar`, `os build` | Espelha para `C:\fw` e `idf.py build`. |
-| `flash [COM] [--primeiro]` | `gravar`, `primeiro` | Compila e grava o OS. Sem porta, detecta a CH340. `--primeiro` apaga a flash antes. |
-| `monitor [COM]` | `os monitor` | Serial do IDF, sem recompilar. |
+| `flash [COM] [--primeiro\|--zero]` | `gravar`, `primeiro`, `zero`, `fabrica` | Compila e grava o OS. Sem porta, detecta a CH340. `--primeiro` apaga a flash. `--zero` apaga a flash e formata o microSD no primeiro mount. |
+| `monitor [COM]` | `os monitor` | Serial do IDF, sem recompilar. **Ctrl+C** sai. |
 | `app build <Slug>` | `os app build` | Compila um app da placa. |
 | `app flash <Slug> [COM]` | — | Grava o app **no chip** (substitui o OS). Apps normais vão no microSD. |
 | `bump os\|<Slug> [patch\|minor\|major]` | — | Atualiza `version.json` ou `app.json`. |
@@ -44,6 +45,7 @@ rbesp help
 rbesp doctor
 rbesp ports
 rbesp flash --primeiro
+rbesp flash --zero
 rbesp monitor
 rbesp bump os patch
 rbesp publish all --dry-run
@@ -63,9 +65,17 @@ senão `RIBANENSE_PORT`, senão a única CH340 detectada. Bluetooth (COM3–7)
 1. Espelha OS + SDK para `C:\fw`.
 2. `idf.py erase-flash` — apaga NVS, otadata e os dois slots.
 3. `idf.py flash` — bootloader, tabela de partições (nvs / otadata / ota_0 / ota_1) e o OS em `ota_0`.
+4. O microSD **não** é apagado.
 
-Sem `--primeiro`, só atualiza bootloader + partições + app e **mantém** o NVS
-(Wi-Fi). `monitor` só abre o serial; não recompila.
+`rbesp flash --zero` (ou `rbesp zero` / `--fabrica`):
+
+1. Espelha e compila o OS.
+2. Gera um NVS com `ribanense/wipe_sd=1` (`ferramentas/nvs-factory-wipe.csv`).
+3. `esptool write_flash --erase-all` — flash vazia + bootloader + partições + NVS + OS **num único write**, antes do reset.
+4. No primeiro `storage_mount` o OS formata o microSD (FAT32) e recria `apps/`, `os/`, `tmp/`, `cache/`. Sem cartão, o marcador fica até o próximo mount.
+
+Sem flag, só atualiza bootloader + partições + app e **mantém** o NVS
+(Wi-Fi). `monitor` só abre o serial; não recompila. Sair: **Ctrl+C**.
 
 Depois do boot: `app_main` inicia NVS, OTA, placa, microSD, Wi-Fi e UI.
 O slot só é marcado válido após ~30 s (`ota_health_tick`). OTA por GitHub
@@ -105,6 +115,7 @@ rbesp doctor
 
 ## Ver também
 
+- [`RBESP_COMANDOS.md`](RBESP_COMANDOS.md) — lista completa de comandos
 - [`RELEASE_PROCESS.md`](RELEASE_PROCESS.md)
 - [`FIRMWARE_RIBANENSEESP.md`](FIRMWARE_RIBANENSEESP.md)
 - [`ESP_APP_SDK.md`](ESP_APP_SDK.md)

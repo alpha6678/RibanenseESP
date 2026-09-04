@@ -146,6 +146,11 @@ que já está no cartão; **Catalogo** baixa e instala. Abrir um app grava
 o `.bin` no slot OTA inativo e reinicia; **Voltar** devolve o boot ao OS
 (NVS `rib_os`/`slot`). Contrato: [`ESP_APP_SDK.md`](ESP_APP_SDK.md).
 
+No mount o OS cria `apps/`, `os/`, `tmp/` (downloads) e `cache/` (JSON
+do catálogo). `rbesp flash --zero` formata o cartão nesse mount (FAT32
+vazio) antes de recriar as pastas. Não há swap: o cartão guarda arquivos,
+não vira RAM.
+
 ```bat
 rbesp build
 rbesp os publish
@@ -192,11 +197,13 @@ python -X utf8 %IDF_PATH%\tools\idf.py build
 python -X utf8 %IDF_PATH%\tools\idf.py -p COMx flash
 ```
 
-Pelo CLI (detecta a CH340; `--primeiro` apaga a flash):
+Pelo CLI (detecta a CH340; `--primeiro` apaga a flash; `--zero` também
+formata o microSD no primeiro mount):
 
 ```bat
 rbesp ports
 rbesp flash --primeiro
+rbesp flash --zero
 rbesp monitor
 ```
 

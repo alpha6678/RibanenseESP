@@ -48,10 +48,22 @@ o `esp-sdk` (board, storage, paleta, shell).
 `esp-<slug>-<ver>.zip` **sem compressão** (o unzip na placa só aceita store)
 + `.sha256` + `app.json`.
 
-O release preenche `url` e `sha256` em [`catalog/esp-catalog.json`](../catalog/esp-catalog.json).
-A placa baixa o zip para `/sdcard/tmp`, confere SHA256, extrai para
-`/sdcard/apps/<id>/`. Dados do OS (Wi-Fi salvo) ficam em `/sdcard/os/`;
-os apps não devem gravar aí.
+O release preenche `url` e `sha256` em [`catalog/esp-catalog.json`](../catalog/esp-catalog.json)
+(URL raw, sem redirect do GitHub Releases).
+
+Mapa do microSD (criado no mount; `rbesp flash --zero` formata o cartão
+antes de recriar estas pastas):
+
+| Pasta | Uso |
+|-------|-----|
+| `/sdcard/apps/<id>/` | App instalado (`app.bin` + `app.json`) |
+| `/sdcard/os/` | Dados do OS (Wi-Fi em `os/wifi/`) |
+| `/sdcard/tmp/` | Download e unzip (`pkg.zip`) |
+| `/sdcard/cache/` | JSON do catálogo (`catalog.json`) |
+
+A placa baixa o zip para `tmp`, confere SHA256 e extrai para `apps/<id>/`.
+O corpo HTTP vai em chunks para o cartão; o ESP32 não usa o SD como RAM.
+Apps não devem gravar em `/sdcard/os/`.
 
 ## Abrir e voltar
 
