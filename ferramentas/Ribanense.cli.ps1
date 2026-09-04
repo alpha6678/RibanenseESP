@@ -198,7 +198,13 @@ function New-FactoryWipeNvsBin {
     $out = Join-Path $build 'nvs_factory_wipe.bin'
     $py = Get-IdfPythonExe
     Write-Host "Gerando NVS factory (wipe_sd) $Size ..." -ForegroundColor Cyan
-    & $py -m esp_idf_nvs_partition_gen generate $csv $out $Size
+    $genOut = & $py -m esp_idf_nvs_partition_gen generate $csv $out $Size 2>&1
+    foreach ($line in @($genOut)) {
+        $text = [string] $line
+        if (-not [string]::IsNullOrWhiteSpace($text)) {
+            Write-Host $text
+        }
+    }
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $out)) {
         throw "Falha ao gerar $out"
     }
@@ -235,7 +241,7 @@ function Invoke-OsFactoryFlash {
     foreach ($p in $flash.flash_files.PSObject.Properties) {
         $pairs += [pscustomobject]@{ Offset = [string] $p.Name; File = [string] $p.Value }
     }
-    $pairs += [pscustomobject]@{ Offset = $nvs.Offset; File = (Split-Path -Leaf $nvsBin) }
+    $pairs += [pscustomobject]@{ Offset = $nvs.Offset; File = [System.IO.Path]::GetFileName([string] $nvsBin) }
     foreach ($p in ($pairs | Sort-Object { [uint32] $_.Offset })) {
         $cmd += @($p.Offset, $p.File)
     }
