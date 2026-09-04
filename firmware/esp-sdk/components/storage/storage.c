@@ -5,6 +5,7 @@
 #include "driver/spi_master.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
+#include "nvs.h"
 #include "sdmmc_cmd.h"
 
 #include <dirent.h>
@@ -15,8 +16,49 @@
 #include <unistd.h>
 
 static const char *TAG = "storage";
+static const char *NVS_NS = "ribanense";
+static const char *NVS_WIPE_SD = "wipe_sd";
 static bool s_ready;
 static sdmmc_card_t *s_card;
+
+static bool wipe_sd_pending(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
+        return false;
+    }
+    uint8_t v = 0;
+    esp_err_t err = nvs_get_u8(h, NVS_WIPE_SD, &v);
+    nvs_close(h);
+    return err == ESP_OK && v != 0;
+}
+
+static void wipe_sd_clear(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        return;
+    }
+    (void)nvs_set_u8(h, NVS_WIPE_SD, 0);
+    (void)nvs_commit(h);
+    nvs_close(h);
+}
+
+static void ensure_layout(void)
+{
+    const char *dirs[] = {
+        STORAGE_APPS_DIR,
+        STORAGE_OS_DIR,
+        STORAGE_WIFI_DIR,
+        STORAGE_TMP_DIR,
+        STORAGE_CACHE_DIR,
+    };
+    for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
+        if (storage_mkdir(dirs[i]) != ESP_OK) {
+            ESP_LOGW(TAG, "mkdir %s errno=%d %s", dirs[i], errno, strerror(errno));
+        }
+    }
+}
 
 bool storage_mount(void)
 {
@@ -42,8 +84,9 @@ bool storage_mount(void)
     slot.gpio_cs = BOARD_SD_CS;
     slot.host_id = SPI2_HOST;
 
+    const bool wipe = wipe_sd_pending();
     esp_vfs_fat_sdmmc_mount_config_t mount = {
-        .format_if_mount_failed = false,
+        .format_if_mount_failed = wipe,
         .max_files = 8,
         .allocation_unit_size = 16 * 1024,
     };
@@ -56,9 +99,19 @@ bool storage_mount(void)
     }
     s_ready = true;
     ESP_LOGI(TAG, "SD montado em %s", STORAGE_MOUNT);
-    (void)storage_mkdir(STORAGE_APPS_DIR);
-    (void)storage_mkdir(STORAGE_OS_DIR);
-    (void)storage_mkdir(STORAGE_WIFI_DIR);
+
+    if (wipe) {
+        ESP_LOGW(TAG, "factory: formatando microSD");
+        err = esp_vfs_fat_sdcard_format(STORAGE_MOUNT, s_card);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "format SD: %s (wipe_sd permanece)", esp_err_to_name(err));
+            return true;
+        }
+        wipe_sd_clear();
+        ESP_LOGI(TAG, "microSD formatado (FAT32 vazio)");
+    }
+
+    ensure_layout();
     return true;
 }
 
