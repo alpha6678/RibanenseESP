@@ -44,7 +44,7 @@ o `esp-sdk` (board, storage, paleta, shell).
 
 ## Pacote e instalação
 
-`rb os app publish Sobre` (ou `rb publish all`) gera
+`rbesp app publish Sobre` (ou `rbesp publish all`) gera
 `esp-<slug>-<ver>.zip` **sem compressão** (o unzip na placa só aceita store)
 + `.sha256` + `app.json`.
 
@@ -62,16 +62,15 @@ os apps não devem gravar aí.
 
 OTA do OS só com a placa no OS. O app no SD não é apagado.
 
-## `rb`
+## `rbesp`
 
 ```bat
-rb os build
-rb os publish
-rb os release 0.0.3
-rb os app publish Sobre -Version 0.1.0
-rb os app release Sobre 0.1.0
-rb publish all --dry-run
+rbesp build
+rbesp os publish
+rbesp os release 0.3.6
+rbesp app publish Sobre
+rbesp app release Sobre 0.1.3
+rbesp publish all --dry-run
 ```
 
-`rb check` continua só .NET. Build IDF só entra no publish/release do OS ou
-do app da placa (espelho em `C:\fw`, ou `RIBANENSE_IDF_MIRROR`).
+Build IDF entra no publish/release (espelho em `C:\fw`, ou `RIBANENSE_IDF_MIRROR`).

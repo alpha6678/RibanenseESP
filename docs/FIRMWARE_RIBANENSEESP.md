@@ -1,10 +1,11 @@
 # RibanenseESP
 
-Casca de firmware da placa E32R28T-1 (ESP32-32E 2,8"). Não é um sistema
-operacional completo e **não entra** na solution .NET. Vive em
-[`firmware/ribanense-esp/`](../firmware/ribanense-esp/).
+Casca de firmware da placa E32R28T-1 (ESP32-32E 2,8"). Vive em
+[`firmware/ribanense-esp/`](../firmware/ribanense-esp/). Este repositório
+é só firmware (ESP-IDF).
 
-Versão atual: **0.0.2**. Tag de release: `ribanense-esp-v<semver>`.
+Versão atual: **0.3.5** em [`firmware/ribanense-esp/version.json`](../firmware/ribanense-esp/version.json).
+Tag de release: `ribanense-esp-v<semver>`.
 
 O dossiê da unidade (fotos, pinout, o que veio na caixa) continua em
 [`../hardware/esp32-2432s028r/README.md`](../hardware/esp32-2432s028r/README.md).
@@ -74,7 +75,7 @@ o CS descartada. IRQ alto só pula XY; Z baixo no ócio (~6) e sobe no
 dedo (600–2600 nesta unidade).
 
 Calibração medida nesta E32R28T-1 (4 cantos + centro, 2026-09-03), em
-[`board_pins.h`](../firmware/ribanense-esp/components/board/include/board_pins.h):
+[`board_pins.h`](../firmware/esp-sdk/components/board/include/board_pins.h):
 
 | Constante | Valor |
 |-----------|-------|
@@ -91,48 +92,46 @@ Calibração medida nesta E32R28T-1 (4 cantos + centro, 2026-09-03), em
 | F0 | Bring-up: pinout desta unidade, UI, mount do SD |
 | F1 | Home; scan 1 Hz; senha no TFT; STA + IP; volta à home |
 | F2 | `GET /status` e `POST /update` na LAN (chunks, nunca o `.bin` na SRAM) |
-| F3 | Pull `firmware.json` (HTTPS + SHA256) + rollback no boot |
+| F3 | Pull `firmware.json` (HTTPS + SHA256 + ECDSA) + rollback real |
 
-Após `GOT_IP` a UI volta à home. Em **Configurações**, o item Wi-Fi
-mostra o IP e **Atualizar** dispara o pull. SoftAP sozinho não alcança
-o GitHub.
+Após `GOT_IP` a UI volta à home. Em **Configurações** aparecem o ID
+`RBN-XXXXXX` (MAC), a senha LAN desta unidade, o item Wi-Fi (IP) e
+**Atualizar** (pull). SoftAP sozinho não alcança o GitHub.
 
 SSID/senha ficam no microSD em `/sdcard/os/wifi/networks.json` (até 8
-redes; `last` é a última que ganhou IP). No boot o STA reconecta essa
-rede se ela existir; se o AP ainda não apareceu, tenta de novo quando o
-scan a vir. **Esquecer** na tela Wi-Fi apaga a entrada e desconecta.
-A flash do Wi-Fi (`WIFI_STORAGE_RAM`) não guarda senha — o cartão é a
-fonte. Sem SD, a sessão vale só até o reboot.
+redes; `last` é a última que ganhou IP). A flash do Wi-Fi continua como
+rede de segurança. No boot o STA espera `WIFI_EVENT_STA_START` e
+reconecta; se o SD ainda não montou ou o AP sumiu, um timer com backoff
+(5/15/30/60 s) tenta de novo — com a tela fechada também. **Esquecer**
+apaga a entrada e desconecta.
 
 Servidor HTTP (porta 80) sobe só com IP. Auth do push: cabeçalho
-`X-Ribanense-Key: ribanense-esp`. Diagnóstico sem cabo: `GET /status`
-(JSON com `err`/`http`/`errno`/`time`/`url`), `GET /log` (últimas linhas
-ESP_LOG), `GET /probe` (só lê o manifesto no GitHub, não grava) e
-`GET /pull` com a chave (mesmo efeito de tocar em **Atualizar**).
+`X-Ribanense-Key` com a senha LAN mostrada em Configurações (HMAC do
+MAC; diferente em cada placa). Diagnóstico: `GET /status`, `GET /log`,
+`GET /probe`, `GET /pull` com a chave.
 
 ```bat
 curl http://192.168.0.230/status
 curl http://192.168.0.230/log
-curl http://192.168.0.230/probe
-curl -H "X-Ribanense-Key: ribanense-esp" http://192.168.0.230/pull
-curl http://192.168.0.230/status
-curl -H "X-Ribanense-Key: ribanense-esp" --data-binary @ribanense_esp.bin http://192.168.0.230/update
+rbesp logs 192.168.0.230
+curl -H "X-Ribanense-Key: <LAN>" http://192.168.0.230/pull
 ```
 
-Manifesto (`firmware/ribanense-esp/firmware.json`): `schemaVersion`,
-`product` = `RibanenseESP`, `version`, `minFlashMb`, `url`, `sha256`.
-O pull recusa `product` diferente, versão ≤ à gravada, `url` vazio ou
-SHA256 divergente. URL do manifesto no firmware:
+Manifesto (`firmware.json`): `schemaVersion`, `product`, `version`,
+`minFlashMb`, `url`, `sha256`, `sig`. O pull recusa produto diferente,
+versão ≤ à gravada, `url` vazio, SHA256 divergente ou assinatura
+inválida (ECDSA P-256 sobre `produto|versao|sha256`). URL do manifesto:
 
-`https://raw.githubusercontent.com/desenvolvimentoLocatelli/BananaSuisa/main/firmware/ribanense-esp/firmware.json`
+`https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/firmware/ribanense-esp/firmware.json`
 
-Assets de release: `ribanense-esp-<ver>.bin` + `.sha256`. O `rb os release`
-(ou `rb publish all`) preenche `url` e `sha256` e sobe o JSON — é assim
-que a placa passa a ver a versão nova. Enquanto `url` estiver vazio,
-**Atualizar** responde `sem binario` (ou `atual` se a versão do JSON não
-for maior). USB-C / CH340 só no **primeiro** flash e na **recuperação**
-se o atualizador da placa não conseguir o GitHub (`rb os flash COM8`).
-O `publish all` nunca grava cabo nem LAN.
+A imagem nova só é marcada válida ~30 s após a UI subir
+(`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`). Se travar no boot, volta ao
+slot anterior.
+
+Assets: `ribanense-esp-<ver>.bin` + `.sha256`. `rbesp os release`
+preenche `url`/`sha256`/`sig`. A placa que ainda busca o repositório
+antigo não vê releases novos — primeiro flash por USB
+(`rbesp flash COM8`). O `publish all` nunca grava cabo nem LAN.
 
 ## Apps no microSD
 
@@ -144,11 +143,11 @@ o `.bin` no slot OTA inativo e reinicia; **Voltar** devolve o boot ao OS
 (NVS `rib_os`/`slot`). Contrato: [`ESP_APP_SDK.md`](ESP_APP_SDK.md).
 
 ```bat
-rb os build
-rb os publish
-rb os release 0.0.3
-rb os app publish Sobre
-rb publish all --dry-run
+rbesp build
+rbesp os publish
+rbesp os release 0.3.6
+rbesp app publish Sobre
+rbesp publish all --dry-run
 ```
 
 ## Limites deste silício
@@ -163,9 +162,8 @@ rb publish all --dry-run
 ## Build
 
 Requer [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/)
-5.3.1. A solution `Ribanense.Solucoes.slnx` e o `rb.cmd` **não** compilam
-este projeto no `rb check`. O `rb os build` / `rb publish all` compilam
-o IDF por uma cópia em `C:\fw` (ou `RIBANENSE_IDF_MIRROR`).
+5.3.1. `rbesp build` / `rbesp publish all` compilam o IDF por uma cópia
+em `C:\fw` (ou `RIBANENSE_IDF_MIRROR`).
 
 **Atenção (Windows com acento no nome de usuário):** o kconfiglib do IDF
 quebra com caracteres não-ASCII no caminho do projeto. Se o seu caminho
