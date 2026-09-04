@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Cria tag Git e publica GitHub Release (app Windows, Launcher, OS ou app da placa).
+  Cria tag Git e publica GitHub Release (OS ou app da placa).
 #>
 [CmdletBinding()]
 param(
@@ -24,22 +24,10 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 
 function Get-ReleaseKind {
     param([string] $Name)
-    if ($Name -ieq 'Launcher') { return 'launcher' }
     if ($Name -in @('OS', 'RibanenseESP', 'Esp')) { return 'os' }
     $espManifest = Join-Path $ProjectRoot "firmware\apps\$Name\app.json"
     if (Test-Path -LiteralPath $espManifest) { return 'esp-app' }
-    return 'win-app'
-}
-
-function Set-JsonField {
-    param([string] $Path, [string] $Name, [string] $Value)
-    $content = Get-Content -LiteralPath $Path -Raw
-    $pattern = "(`"$Name`"\s*:\s*`")[^`"]*(`")"
-    if (-not [regex]::IsMatch($content, $pattern)) {
-        throw "Campo '$Name' nao encontrado em $Path"
-    }
-    $updated = [regex]::Replace($content, $pattern, { param($m) "$($m.Groups[1].Value)$Value$($m.Groups[2].Value)" }, 1)
-    Set-Content -LiteralPath $Path -Value $updated -Encoding UTF8
+    throw "Alvo desconhecido: $Name (use OS ou o slug de um app em firmware/apps)."
 }
 
 function Invoke-PointerCommit {
@@ -79,36 +67,14 @@ if ($Version -match '^\d+\.\d+$') {
     $Version = "$Version.0"
 }
 
-function Set-OsEmbeddedVersion {
-    param([Parameter(Mandatory)] [string] $Ver)
-    $header = Join-Path $ProjectRoot 'firmware\esp-sdk\components\board\include\ribanense_esp_version.h'
-    if (-not (Test-Path -LiteralPath $header)) {
-        throw "ribanense_esp_version.h nao encontrado: $header"
-    }
-    $content = Get-Content -LiteralPath $header -Raw
-    $pattern = '(#define\s+RIBANENSEESP_VERSION\s+")[^"]+(")'
-    if (-not [regex]::IsMatch($content, $pattern)) {
-        throw "RIBANENSEESP_VERSION nao encontrado em $header"
-    }
-    $content = [regex]::Replace($content, $pattern, { param($m) "$($m.Groups[1].Value)$Ver$($m.Groups[2].Value)" }, 1)
-    Set-Content -LiteralPath $header -Value $content -Encoding UTF8
-    $fw = Join-Path $ProjectRoot 'firmware\ribanense-esp\firmware.json'
-    if (Test-Path -LiteralPath $fw) {
-        Set-JsonField -Path $fw -Name 'version' -Value $Ver
-    }
-    return @($header, $fw)
-}
-
 $kind = Get-ReleaseKind -Name $App
 if (-not $TagPrefix) {
     $TagPrefix = switch ($kind) {
-        'launcher' { 'launcher-v' }
         'os' { 'ribanense-esp-v' }
         'esp-app' {
             $m = Get-Content -LiteralPath (Join-Path $ProjectRoot "firmware\apps\$App\app.json") -Raw | ConvertFrom-Json
             if ($m.githubTagPrefix) { [string] $m.githubTagPrefix } else { "esp-$($App.ToLowerInvariant())-v" }
         }
-        default { "$($App.ToLowerInvariant())-v" }
     }
 }
 $tag = "$TagPrefix$Version"
@@ -120,44 +86,24 @@ try {
         throw "Tag '$tag' ja existe. Remova (git tag -d $tag) ou use outra versao."
     }
 
-    $outName = switch ($kind) {
-        'launcher' { 'Launcher' }
-        'os' { 'RibanenseESP' }
-        'esp-app' { "Esp$App" }
-        default { $App }
-    }
+    $outName = if ($kind -eq 'os') { 'RibanenseESP' } else { "Esp$App" }
 
-    switch ($kind) {
-        'launcher' {
-            & "$ScriptRoot\publish-launcher.ps1" -Version $Version
-        }
-        'os' {
-            Write-Host "Gravando versao $Version no OS (header + firmware.json)..." -ForegroundColor Cyan
-            $osFiles = @(Set-OsEmbeddedVersion -Ver $Version)
-            Invoke-PointerCommit -Files $osFiles -Message "chore(release): RibanenseESP $Version"
-            & "$ScriptRoot\publish-os.ps1" -Version $Version
-        }
-        'esp-app' {
-            & "$ScriptRoot\publish-esp-app.ps1" -App $App -Version $Version
-        }
-        default {
-            & "$ScriptRoot\publish-module.ps1" -App $App -Version $Version
-        }
+    if ($kind -eq 'os') {
+        & "$ScriptRoot\publish-os.ps1" -Version $Version
+    } else {
+        & "$ScriptRoot\publish-esp-app.ps1" -App $App -Version $Version
     }
     if ($LASTEXITCODE -ne 0) { throw "publish falhou para $App." }
 
     $outDir = Join-Path $ProjectRoot "artifacts\publish\$outName"
     $gh = Get-GithubOwnerRepo -ProjectRoot $ProjectRoot
 
-    $assetBaseName = switch ($kind) {
-        'launcher' { "launcher-$Version-win-x64.exe" }
-        'os' { "ribanense-esp-$Version.bin" }
-        'esp-app' {
-            $m = Get-Content -LiteralPath (Join-Path $ProjectRoot "firmware\apps\$App\app.json") -Raw | ConvertFrom-Json
-            $slug = if ($m.id -match '([^.]+)$') { $Matches[1] } else { $App.ToLowerInvariant() }
-            "esp-$slug-$Version.zip"
-        }
-        default { "$($App.ToLowerInvariant())-$Version-win-x64.zip" }
+    $assetBaseName = if ($kind -eq 'os') {
+        "ribanense-esp-$Version.bin"
+    } else {
+        $m = Get-Content -LiteralPath (Join-Path $ProjectRoot "firmware\apps\$App\app.json") -Raw | ConvertFrom-Json
+        $slug = if ($m.id -match '([^.]+)$') { $Matches[1] } else { $App.ToLowerInvariant() }
+        "esp-$slug-$Version.zip"
     }
     $assetPath = Join-Path $outDir $assetBaseName
     $shaPath = "$assetPath.sha256"
@@ -173,22 +119,16 @@ try {
     & git push origin $tag
     if ($LASTEXITCODE -ne 0) { throw "git push origin $tag falhou; release abortado." }
 
-    $releaseTitle = switch ($kind) {
-        'launcher' { "Ribanense Soluções Launcher $Version" }
-        'os' { "RibanenseESP $Version" }
-        'esp-app' { "RibanenseESP $App $Version" }
-        default { "$App $Version" }
-    }
-    $releaseNotes = switch ($kind) {
-        'os' { "Release automatizado do OS RibanenseESP $Version." }
-        'esp-app' { "Release automatizado do app da placa $App $Version." }
-        'launcher' { "Release automatizado do Launcher $Version (executavel unico win-x64 self-contained)." }
-        default { "Release automatizado de $App $Version." }
+    $releaseTitle = if ($kind -eq 'os') { "RibanenseESP $Version" } else { "RibanenseESP $App $Version" }
+    $releaseNotes = if ($kind -eq 'os') {
+        "Release automatizado do OS RibanenseESP $Version (binario assinado ECDSA P-256)."
+    } else {
+        "Release automatizado do app da placa $App $Version."
     }
 
     Write-Host "Publicando release $tag..." -ForegroundColor Cyan
     $ghArgs = @('release', 'create', $tag, $assetPath, $shaPath, '--title', $releaseTitle, '--notes', $releaseNotes)
-    if ($kind -in @('win-app', 'esp-app') -and (Test-Path -LiteralPath $manifestPath)) {
+    if ($kind -eq 'esp-app' -and (Test-Path -LiteralPath $manifestPath)) {
         $ghArgs += $manifestPath
     }
     & gh @ghArgs
@@ -205,9 +145,7 @@ try {
         $distBin = Join-Path $distDir $assetBaseName
         Copy-Item -LiteralPath $assetPath -Destination $distBin -Force
         $url = "https://raw.githubusercontent.com/$($gh.Owner)/$($gh.Repo)/main/firmware/ribanense-esp/dist/$assetBaseName"
-        Set-JsonField -Path $fw -Name 'version' -Value $Version
-        Set-JsonField -Path $fw -Name 'url' -Value $url
-        Set-JsonField -Path $fw -Name 'sha256' -Value $hash
+        $null = Set-FirmwareManifestPointer -ProjectRoot $ProjectRoot -Version $Version -Url $url -Sha256 $hash
         Invoke-PointerCommit -Files @($fw) -TreePaths @($distDir) -Message "chore(release): firmware.json $Version"
     }
     elseif ($kind -eq 'esp-app') {
@@ -226,6 +164,8 @@ try {
                 $entry.version = $Version
                 $entry.url = $url
                 $entry.sha256 = $hash
+                $entry.githubOwner = $gh.Owner
+                $entry.githubRepo = $gh.Repo
                 $hit = $true
             }
         }

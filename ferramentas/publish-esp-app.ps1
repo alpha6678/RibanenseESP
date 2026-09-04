@@ -51,6 +51,7 @@ $appMirror = Join-Path $mirror "apps\$App"
 Write-Host "Espelhando $App para $appMirror ..." -ForegroundColor Cyan
 Invoke-RobocopyMirror -Source $appDir -Destination $appMirror
 Invoke-RobocopyMirror -Source $sdkSrc -Destination (Join-Path $mirror 'esp-sdk')
+Copy-OsVersionJsonToSdk -ProjectRoot $ProjectRoot -SdkDest (Join-Path $mirror 'esp-sdk')
 
 Write-Host "Compilando app da placa $App $Version ..." -ForegroundColor Cyan
 Invoke-IdfBuild -ProjectDir $appMirror -ExtraArgs @('build')

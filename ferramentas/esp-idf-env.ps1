@@ -78,10 +78,171 @@ function Invoke-IdfBuild {
     }
 }
 
+function Get-OsVersionPath {
+    param([Parameter(Mandatory)] [string] $ProjectRoot)
+    return (Join-Path $ProjectRoot 'firmware\ribanense-esp\version.json')
+}
+
+function Get-OsVersionInfo {
+    param([Parameter(Mandatory)] [string] $ProjectRoot)
+    $path = Get-OsVersionPath -ProjectRoot $ProjectRoot
+    if (-not (Test-Path -LiteralPath $path)) {
+        throw "version.json nao encontrado: $path"
+    }
+    return Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+}
+
+function Set-OsVersionInfo {
+    param(
+        [Parameter(Mandatory)] [string] $ProjectRoot,
+        [Parameter(Mandatory)] [string] $Version
+    )
+    $path = Get-OsVersionPath -ProjectRoot $ProjectRoot
+    $info = Get-OsVersionInfo -ProjectRoot $ProjectRoot
+    $info.version = $Version
+    $info | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $path -Encoding UTF8
+    $fw = Join-Path $ProjectRoot 'firmware\ribanense-esp\firmware.json'
+    if (Test-Path -LiteralPath $fw) {
+        $raw = Get-Content -LiteralPath $fw -Raw -Encoding UTF8
+        $raw = [regex]::Replace($raw, '("version"\s*:\s*")[^"]+(")', { param($m) "$($m.Groups[1].Value)$Version$($m.Groups[2].Value)" }, 1)
+        Set-Content -LiteralPath $fw -Value $raw -Encoding UTF8
+    }
+    return $path
+}
+
+function Copy-OsVersionJsonToSdk {
+    param(
+        [Parameter(Mandatory)] [string] $ProjectRoot,
+        [Parameter(Mandatory)] [string] $SdkDest
+    )
+    $src = Get-OsVersionPath -ProjectRoot $ProjectRoot
+    if (-not (Test-Path -LiteralPath $src)) {
+        return
+    }
+    New-Item -ItemType Directory -Path $SdkDest -Force | Out-Null
+    Copy-Item -LiteralPath $src -Destination (Join-Path $SdkDest 'version.json') -Force
+}
+
+function Get-OpenSslPath {
+    $candidates = @(
+        'C:\Program Files\Git\usr\bin\openssl.exe',
+        'C:\Program Files\Git\mingw64\bin\openssl.exe'
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path -LiteralPath $c) { return $c }
+    }
+    $cmd = Get-Command openssl -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    return $null
+}
+
+function Get-SigningKeyPath {
+    param([Parameter(Mandatory)] [string] $ProjectRoot)
+    if (-not [string]::IsNullOrWhiteSpace($env:RIBANENSE_SIGNING_KEY)) {
+        return $env:RIBANENSE_SIGNING_KEY.Trim()
+    }
+    return (Join-Path $ProjectRoot 'secrets\ribanense-ota.pem')
+}
+
+function Get-OtaCanonical {
+    param([string] $Product, [string] $Version, [string] $Sha256)
+    return "$Product|$Version|$Sha256"
+}
+
+function ConvertTo-HexLower {
+    param([byte[]] $Bytes)
+    return -join ($Bytes | ForEach-Object { $_.ToString('x2') })
+}
+
+function Invoke-OtaSignCanonical {
+    param(
+        [Parameter(Mandatory)] [string] $ProjectRoot,
+        [Parameter(Mandatory)] [string] $Canonical
+    )
+    $ossl = Get-OpenSslPath
+    if (-not $ossl) { throw "openssl nao encontrado (instale Git for Windows ou openssl no PATH)." }
+    $key = Get-SigningKeyPath -ProjectRoot $ProjectRoot
+    if (-not (Test-Path -LiteralPath $key)) {
+        throw "Chave privada ausente: $key (rode rbesp keygen ou defina RIBANENSE_SIGNING_KEY)."
+    }
+    $tmp = Join-Path $env:TEMP ("rbn-canon-{0}.txt" -f [guid]::NewGuid().ToString('N'))
+    $sig = "$tmp.sig"
+    try {
+        [System.IO.File]::WriteAllBytes($tmp, [System.Text.Encoding]::ASCII.GetBytes($Canonical))
+        & $ossl dgst -sha256 -sign $key -out $sig $tmp
+        if ($LASTEXITCODE -ne 0) { throw "openssl dgst -sign falhou." }
+        return (ConvertTo-HexLower -Bytes ([System.IO.File]::ReadAllBytes($sig)))
+    }
+    finally {
+        foreach ($p in @($tmp, $sig)) {
+            if ($p) { try { [System.IO.File]::Delete($p) } catch { } }
+        }
+    }
+}
+
+function Invoke-OtaVerifyCanonical {
+    param(
+        [Parameter(Mandatory)] [string] $ProjectRoot,
+        [Parameter(Mandatory)] [string] $Canonical,
+        [Parameter(Mandatory)] [string] $SigHex
+    )
+    $ossl = Get-OpenSslPath
+    if (-not $ossl) { throw "openssl nao encontrado." }
+    $pub = Join-Path $ProjectRoot 'secrets\ribanense-ota.pub.pem'
+    if (-not (Test-Path -LiteralPath $pub)) {
+        throw "Chave publica ausente: $pub"
+    }
+    if ($SigHex.Length % 2 -ne 0) { throw "assinatura hex invalida." }
+    $bytes = New-Object byte[] ($SigHex.Length / 2)
+    for ($i = 0; $i -lt $bytes.Length; $i++) {
+        $bytes[$i] = [Convert]::ToByte($SigHex.Substring($i * 2, 2), 16)
+    }
+    $tmp = Join-Path $env:TEMP ("rbn-canon-{0}.txt" -f [guid]::NewGuid().ToString('N'))
+    $sig = "$tmp.sig"
+    try {
+        [System.IO.File]::WriteAllBytes($tmp, [System.Text.Encoding]::ASCII.GetBytes($Canonical))
+        [System.IO.File]::WriteAllBytes($sig, $bytes)
+        & $ossl dgst -sha256 -verify $pub -signature $sig $tmp | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    }
+    finally {
+        foreach ($p in @($tmp, $sig)) {
+            if ($p) { try { [System.IO.File]::Delete($p) } catch { } }
+        }
+    }
+}
+
+function Set-FirmwareManifestPointer {
+    param(
+        [Parameter(Mandatory)] [string] $ProjectRoot,
+        [Parameter(Mandatory)] [string] $Version,
+        [Parameter(Mandatory)] [string] $Url,
+        [Parameter(Mandatory)] [string] $Sha256
+    )
+    $fw = Join-Path $ProjectRoot 'firmware\ribanense-esp\firmware.json'
+    $info = Get-OsVersionInfo -ProjectRoot $ProjectRoot
+    $product = [string] $info.product
+    if (-not $product) { $product = 'RibanenseESP' }
+    $sig = Invoke-OtaSignCanonical -ProjectRoot $ProjectRoot -Canonical (Get-OtaCanonical -Product $product -Version $Version -Sha256 $Sha256)
+    $doc = [ordered]@{
+        schemaVersion = 1
+        product       = $product
+        version       = $Version
+        minFlashMb    = 4
+        url           = $Url
+        sha256        = $Sha256
+        sig           = $sig
+    }
+    ($doc | ConvertTo-Json -Depth 4) + "`n" | Set-Content -LiteralPath $fw -Encoding UTF8
+    return $sig
+}
+
 function Get-GithubOwnerRepo {
     param([Parameter(Mandatory)] [string] $ProjectRoot)
-    $owner = 'alpha6678'
-    $repo = 'RibanenseESP'
+    $info = $null
+    try { $info = Get-OsVersionInfo -ProjectRoot $ProjectRoot } catch { $info = $null }
+    $owner = if ($info -and $info.githubOwner) { [string] $info.githubOwner } else { 'alpha6678' }
+    $repo = if ($info -and $info.githubRepo) { [string] $info.githubRepo } else { 'RibanenseESP' }
     Push-Location $ProjectRoot
     try {
         $url = & git remote get-url origin 2>$null

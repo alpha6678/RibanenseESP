@@ -22,16 +22,12 @@ $ProjectRoot = Split-Path -Parent $ScriptRoot
 
 $osSrc = Join-Path $ProjectRoot 'firmware\ribanense-esp'
 $sdkSrc = Join-Path $ProjectRoot 'firmware\esp-sdk'
-$versionH = Join-Path $sdkSrc 'components\board\include\ribanense_esp_version.h'
 if (-not (Test-Path -LiteralPath $osSrc)) {
     throw "OS nao encontrado: $osSrc"
 }
 if (-not $Version) {
-    $content = Get-Content -LiteralPath $versionH -Raw
-    if ($content -match '#define\s+RIBANENSEESP_VERSION\s+"([^"]+)"') {
-        $Version = $Matches[1]
-    }
-    if (-not $Version) { throw "Nao foi possivel ler RIBANENSEESP_VERSION." }
+    $Version = [string] (Get-OsVersionInfo -ProjectRoot $ProjectRoot).version
+    if (-not $Version) { throw "Nao foi possivel ler version.json." }
 }
 
 if (-not $OutputDir) {
@@ -46,6 +42,7 @@ $mirror = Get-IdfMirrorRoot
 Write-Host "Espelhando OS para $mirror ..." -ForegroundColor Cyan
 Invoke-RobocopyMirror -Source $osSrc -Destination (Join-Path $mirror 'ribanense-esp')
 Invoke-RobocopyMirror -Source $sdkSrc -Destination (Join-Path $mirror 'esp-sdk')
+Copy-OsVersionJsonToSdk -ProjectRoot $ProjectRoot -SdkDest (Join-Path $mirror 'esp-sdk')
 
 $osMirror = Join-Path $mirror 'ribanense-esp'
 Sync-IdfSdkconfigFromDefaults -ProjectDir $osMirror

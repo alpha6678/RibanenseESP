@@ -17,6 +17,8 @@ IA/
 .env
 .env.*
 !.env.example
+secrets/
+*.pem
 
 
 # ESP-IDF (RibanenseESP)
@@ -26,3 +28,9 @@ firmware/ribanense-esp/managed_components/
 firmware/ribanense-esp/sdkconfig
 firmware/ribanense-esp/sdkconfig.old
 firmware/ribanense-esp/dependencies.lock
+firmware/apps/*/build/
+firmware/apps/*/managed_components/
+firmware/apps/*/sdkconfig
+firmware/apps/*/sdkconfig.old
+firmware/apps/*/dependencies.lock
+firmware/esp-sdk/version.json
