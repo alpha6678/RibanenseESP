@@ -1,5 +1,6 @@
 #include "board.h"
 #include "board_pins.h"
+#include "ribanense_esp_version.h"
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
@@ -7,7 +8,12 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_rom_sys.h"
+#include "mbedtls/md.h"
+
+#include <stdio.h>
+#include <string.h>
 
 static const char *TAG = "board";
 static esp_lcd_panel_handle_t s_panel;
@@ -122,6 +128,33 @@ static uint16_t xpt_read12(uint8_t cmd)
     }
     xpt_clk(0);
     return v;
+}
+
+void board_device_id(char *out, size_t max)
+{
+    if (out == NULL || max == 0) {
+        return;
+    }
+    uint8_t mac[6] = {0};
+    (void)esp_efuse_mac_get_default(mac);
+    snprintf(out, max, "RBN-%02X%02X%02X", mac[3], mac[4], mac[5]);
+}
+
+void board_lan_key(char *out, size_t max)
+{
+    if (out == NULL || max == 0) {
+        return;
+    }
+    out[0] = 0;
+    uint8_t mac[6] = {0};
+    (void)esp_efuse_mac_get_default(mac);
+    const char *seed = RIBANENSEESP_LAN_SEED;
+    uint8_t dig[32];
+    if (mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
+                        (const unsigned char *)seed, strlen(seed), mac, sizeof(mac), dig) != 0) {
+        return;
+    }
+    snprintf(out, max, "%02x%02x%02x%02x", dig[0], dig[1], dig[2], dig[3]);
 }
 
 esp_err_t board_init(void)
