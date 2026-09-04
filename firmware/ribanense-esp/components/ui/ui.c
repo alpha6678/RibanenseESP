@@ -514,7 +514,7 @@ static void on_wifi_forget(lv_event_t *e)
 
 static void on_ap_click(lv_event_t *e)
 {
-    lv_obj_t *row = lv_event_get_target(e);
+    lv_obj_t *row = lv_event_get_current_target_obj(e);
     lv_obj_t *lab = lv_obj_get_child(row, 0);
     if (lab == NULL) {
         return;
@@ -939,11 +939,12 @@ static void build_pass(void)
 static void destroy_pass(void)
 {
     if (s_pass) {
-        lv_obj_delete(s_pass);
+        lv_obj_t *old = s_pass;
         s_pass = NULL;
         s_pass_status = NULL;
         s_pass_ta = NULL;
         s_kb = NULL;
+        lv_obj_delete_async(old);
     }
 }
 
@@ -982,10 +983,11 @@ static void destroy_store(void)
 {
     s_store_live = false;
     if (s_store) {
-        lv_obj_delete(s_store);
+        lv_obj_t *old = s_store;
         s_store = NULL;
         s_store_status = NULL;
         s_store_list = NULL;
+        lv_obj_delete_async(old);
     }
 }
 
@@ -1072,12 +1074,13 @@ static void show_home(void)
     destroy_pass();
     destroy_store();
     if (s_wifi) {
-        lv_obj_delete(s_wifi);
+        lv_obj_t *old = s_wifi;
         s_wifi = NULL;
         s_wifi_status = NULL;
         s_wifi_list = NULL;
         s_wifi_forget = NULL;
         s_wifi_forget_lab = NULL;
+        lv_obj_delete_async(old);
     }
     refresh_home_apps();
 }
@@ -1194,6 +1197,19 @@ static void build_settings(void)
     lv_obj_t *title = lv_label_create(bar);
     lv_label_set_text(title, "Configuracoes");
     lv_obj_set_style_text_color(title, ui_color_blue(), 0);
+
+    char devid[16];
+    char lankey[16];
+    board_device_id(devid, sizeof(devid));
+    board_lan_key(lankey, sizeof(lankey));
+    lv_obj_t *idlab = lv_label_create(s_settings);
+    lv_label_set_text(idlab, devid);
+    lv_obj_set_style_text_color(idlab, ui_color_white(), 0);
+    char keyline[28];
+    snprintf(keyline, sizeof(keyline), "LAN %s", lankey);
+    lv_obj_t *keylab = lv_label_create(s_settings);
+    lv_label_set_text(keylab, keyline);
+    lv_obj_set_style_text_color(keylab, ui_color_white(), 0);
 
     lv_obj_t *list = make_scroll_list(s_settings);
 
