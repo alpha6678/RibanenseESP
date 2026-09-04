@@ -29,12 +29,17 @@ void app_main(void)
     if (net_init() != ESP_OK) {
         ESP_LOGE(TAG, "Wi-Fi nao iniciou; scan fica indisponivel");
     } else {
+        char host[16];
+        board_device_id(host, sizeof(host));
+        (void)net_set_hostname(host);
         (void)net_sta_restore();
     }
     ESP_ERROR_CHECK(ui_init());
 
     while (1) {
+        net_tick();
         ui_tick();
+        ota_health_tick();
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 }

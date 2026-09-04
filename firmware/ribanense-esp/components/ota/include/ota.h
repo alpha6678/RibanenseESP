@@ -11,6 +11,7 @@ typedef enum {
 } ota_state_t;
 
 esp_err_t ota_init(void);
+void ota_health_tick(void);
 esp_err_t ota_start_httpd(void);
 void ota_pull_start(void);
 esp_err_t ota_apply_file(const char *abs_path);

@@ -1,9 +1,12 @@
 #include "ota.h"
+#include "board.h"
 #include "net.h"
 #include "ribanense_esp_version.h"
+#include "ribanense_ota_pubkey.h"
 
 #include <ctype.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +21,8 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_timer.h"
+#include "mbedtls/pk.h"
 #include "mbedtls/sha256.h"
 
 #include <stdarg.h>
@@ -121,11 +126,82 @@ static int semver_cmp(const char *a, const char *b)
 
 static bool key_ok(httpd_req_t *req)
 {
-    char key[32];
-    if (httpd_req_get_hdr_value_str(req, "X-Ribanense-Key", key, sizeof(key)) != ESP_OK) {
+    char got[32];
+    char want[16];
+    if (httpd_req_get_hdr_value_str(req, "X-Ribanense-Key", got, sizeof(got)) != ESP_OK) {
         return false;
     }
-    return strcmp(key, RIBANENSEESP_OTA_KEY) == 0;
+    board_lan_key(want, sizeof(want));
+    return want[0] != 0 && strcmp(got, want) == 0;
+}
+
+static int hex_nibble(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+static int hex_to_bin(const char *hex, uint8_t *out, int max)
+{
+    int n = 0;
+    while (hex[0] && hex[1] && n < max) {
+        int hi = hex_nibble(hex[0]);
+        int lo = hex_nibble(hex[1]);
+        if (hi < 0 || lo < 0) {
+            return -1;
+        }
+        out[n++] = (uint8_t)((hi << 4) | lo);
+        hex += 2;
+    }
+    if (hex[0] != 0) {
+        return -1;
+    }
+    return n;
+}
+
+static bool sig_ok(const char *product, const char *ver, const char *sha, const char *sig_hex)
+{
+    if (product == NULL || ver == NULL || sha == NULL || sig_hex == NULL || sig_hex[0] == 0) {
+        return false;
+    }
+    char canon[200];
+    int n = snprintf(canon, sizeof(canon), "%s|%s|%s", product, ver, sha);
+    if (n <= 0 || n >= (int)sizeof(canon)) {
+        return false;
+    }
+    uint8_t hash[32];
+    mbedtls_sha256((const unsigned char *)canon, (size_t)n, hash, 0);
+
+    uint8_t der[128];
+    int der_n = hex_to_bin(sig_hex, der, (int)sizeof(der));
+    if (der_n <= 0) {
+        return false;
+    }
+
+    mbedtls_pk_context pk;
+    mbedtls_pk_init(&pk);
+    const char *pem = RIBANENSEESP_OTA_PUBKEY;
+    int err = mbedtls_pk_parse_public_key(&pk, (const unsigned char *)pem, strlen(pem) + 1);
+    if (err != 0) {
+        mbedtls_pk_free(&pk);
+        ESP_LOGE(TAG, "pubkey %d", err);
+        return false;
+    }
+    err = mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA256, hash, sizeof(hash), der, (size_t)der_n);
+    mbedtls_pk_free(&pk);
+    if (err != 0) {
+        ESP_LOGE(TAG, "sig invalida %d", err);
+        return false;
+    }
+    return true;
 }
 
 static esp_err_t write_stream(esp_ota_handle_t h, mbedtls_sha256_context *sha, const void *p, int n)
@@ -619,10 +695,12 @@ static void pull_task(void *arg)
     const cJSON *ver = cJSON_GetObjectItem(root, "version");
     const cJSON *url = cJSON_GetObjectItem(root, "url");
     const cJSON *sha = cJSON_GetObjectItem(root, "sha256");
+    const cJSON *sig = cJSON_GetObjectItem(root, "sig");
     const char *pv = cJSON_IsString(product) ? product->valuestring : "";
     const char *vv = cJSON_IsString(ver) ? ver->valuestring : "";
     const char *uv = cJSON_IsString(url) ? url->valuestring : "";
     const char *sv = cJSON_IsString(sha) ? sha->valuestring : "";
+    const char *sg = cJSON_IsString(sig) ? sig->valuestring : "";
 
     if (strcmp(pv, RIBANENSEESP_PRODUCT) != 0) {
         cJSON_Delete(root);
@@ -641,6 +719,13 @@ static void pull_task(void *arg)
     if (uv[0] == 0) {
         cJSON_Delete(root);
         set_state(OTA_ERR, "sem binario");
+        s_pull_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    if (!sig_ok(pv, vv, sv, sg)) {
+        cJSON_Delete(root);
+        set_state(OTA_ERR, "assinatura");
         s_pull_busy = false;
         vTaskDelete(NULL);
         return;
@@ -743,10 +828,29 @@ esp_err_t ota_apply_file(const char *abs_path)
     return ESP_OK;
 }
 
+void ota_health_tick(void)
+{
+    static int64_t start_us;
+    static bool marked;
+    if (marked) {
+        return;
+    }
+    if (start_us == 0) {
+        start_us = esp_timer_get_time();
+        return;
+    }
+    if (esp_timer_get_time() - start_us < 30 * 1000000LL) {
+        return;
+    }
+    if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+        ESP_LOGI(TAG, "app marcado valido (health 30s)");
+    }
+    marked = true;
+}
+
 esp_err_t ota_init(void)
 {
     (void)esp_log_set_vprintf(ota_log_vprintf);
-    (void)esp_ota_mark_app_valid_cancel_rollback();
     set_state(OTA_IDLE, "Atualizar");
     ESP_LOGI(TAG, "OTA pronto (GET /status /log /probe /pull POST /update)");
     return ESP_OK;

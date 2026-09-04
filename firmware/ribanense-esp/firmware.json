@@ -3,8 +3,10 @@
   "product": "RibanenseESP",
   "version": "0.3.5",
   "minFlashMb": 4,
-  "url": "https://raw.githubusercontent.com/desenvolvimentoLocatelli/BananaSuisa/main/firmware/ribanense-esp/dist/ribanense-esp-0.3.5.bin",
-  "sha256": "de0f931e3c5bea047278a914e865acac90f410ccee7cb0107e31843f2aec1915"
+  "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/firmware/ribanense-esp/dist/ribanense-esp-0.3.5.bin",
+  "sig": "",
+  "sha256": "de0f931e3c5bea047278a914e865acac90f410ccee7cb0107e31843f2aec1915",
+  "sig": "304502201813d68b0352c463f3560002a095c4d4492885277cb1805abfe107c949dca727022100a29aeee9033f58d98d22cae8823012aa7e1386069b2be5ed98b3952b1c15e773"
 }
 
 

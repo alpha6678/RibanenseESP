@@ -7,12 +7,12 @@
       "publicName": "Sobre",
       "description": "Versao, MAC e retorno ao OS.",
       "category": "Sistema",
-      "githubOwner": "desenvolvimentoLocatelli",
-      "githubRepo": "BananaSuisa",
+      "githubOwner": "alpha6678",
+      "githubRepo": "RibanenseESP",
       "githubTagPrefix": "esp-sobre-v",
       "minimumOsVersion": "0.0.2",
       "version": "0.1.2",
-      "url": "https://github.com/desenvolvimentoLocatelli/BananaSuisa/releases/download/esp-sobre-v0.1.2/esp-sobre-0.1.2.zip",
+      "url": "https://github.com/alpha6678/RibanenseESP/releases/download/esp-sobre-v0.1.2/esp-sobre-0.1.2.zip",
       "sha256": "e42f5a5b850bb1a41c699e04fd36d1120d27548e1ef2771888405e6a1ec657df"
     }
   ]
