@@ -12,7 +12,7 @@
       "githubTagPrefix": "esp-sobre-v",
       "minimumOsVersion": "0.0.2",
       "version": "0.1.2",
-      "url": "https://github.com/alpha6678/RibanenseESP/releases/download/esp-sobre-v0.1.2/esp-sobre-0.1.2.zip",
+      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-sobre-0.1.2.zip",
       "sha256": "bd0eb1cef20db59b6e6c78c31bb9bd4ba8775899f31769cf554072922d87bffa"
     }
   ]

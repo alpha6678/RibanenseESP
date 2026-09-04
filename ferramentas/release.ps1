@@ -150,7 +150,14 @@ try {
     elseif ($kind -eq 'esp-app') {
         $cat = Join-Path $ProjectRoot 'catalog\esp-catalog.json'
         $m = Get-Content -LiteralPath (Join-Path $ProjectRoot "firmware\apps\$App\app.json") -Raw | ConvertFrom-Json
-        $url = "https://github.com/$($gh.Owner)/$($gh.Repo)/releases/download/$tag/$assetBaseName"
+        $distDir = Join-Path $ProjectRoot 'catalog\dist'
+        New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+        $slug = if ($m.id -match '([^.]+)$') { $Matches[1] } else { $App.ToLowerInvariant() }
+        Get-ChildItem -LiteralPath $distDir -Filter "esp-$slug-*.zip" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne $assetBaseName } |
+            Remove-Item -Force
+        Copy-Item -LiteralPath $assetPath -Destination (Join-Path $distDir $assetBaseName) -Force
+        $url = "https://raw.githubusercontent.com/$($gh.Owner)/$($gh.Repo)/main/catalog/dist/$assetBaseName"
         $raw = Get-Content -LiteralPath $cat -Raw
         $id = [regex]::Escape([string] $m.id)
         if ($raw -notmatch $id) {
@@ -170,7 +177,7 @@ try {
         }
         if (-not $hit) { throw "Entrada do catalogo nao encontrada para $($m.id)." }
         $doc | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $cat -Encoding UTF8
-        Invoke-PointerCommit -Files @($cat) -Message "chore(release): esp-catalog $($m.id) $Version"
+        Invoke-PointerCommit -Files @($cat) -TreePaths @($distDir) -Message "chore(release): esp-catalog $($m.id) $Version"
     }
 
     Write-Host ""
