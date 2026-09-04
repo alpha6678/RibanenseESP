@@ -1145,7 +1145,7 @@ static void build_home(void)
 
     lv_obj_t *title = lv_label_create(s_home);
     lv_label_set_text(title, RIBANENSEESP_PRODUCT);
-    lv_obj_set_style_text_color(title, ui_color_blue(), 0);
+    lv_obj_set_style_text_color(title, ui_color_green(), 0);
 
     lv_obj_t *ver = lv_label_create(s_home);
     lv_label_set_text(ver, RIBANENSEESP_VERSION);
