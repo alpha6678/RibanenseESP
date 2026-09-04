@@ -139,13 +139,13 @@ static esp_err_t flush(void)
 
 esp_err_t wifi_store_load(void)
 {
-    s_loaded = true;
-    clear_all();
     if (!storage_ready()) {
         return ESP_ERR_INVALID_STATE;
     }
+    clear_all();
     char buf[2048];
     if (storage_read_text(WIFI_STORE_PATH, buf, sizeof(buf)) != ESP_OK || buf[0] == 0) {
+        s_loaded = true;
         return ESP_ERR_NOT_FOUND;
     }
     cJSON *root = cJSON_Parse(buf);
@@ -155,6 +155,7 @@ esp_err_t wifi_store_load(void)
     }
     apply_json(root);
     cJSON_Delete(root);
+    s_loaded = true;
     ESP_LOGI(TAG, "leu %d rede(s) last=%s", s_n, s_last[0] ? s_last : "-");
     return ESP_OK;
 }

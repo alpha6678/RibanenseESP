@@ -7,7 +7,7 @@
 
 #define NET_SSID_MAX 33
 #define NET_PASS_MAX 65
-#define NET_AP_MAX   16
+#define NET_AP_MAX   12
 #define NET_IP_MAX   16
 
 #define NET_AUTH_OPEN 0
@@ -33,7 +33,9 @@ typedef enum {
 } net_sta_state_t;
 
 esp_err_t net_init(void);
+void net_tick(void);
 bool net_ready(void);
+esp_err_t net_set_hostname(const char *name);
 
 esp_err_t net_scan_start(void);
 esp_err_t net_scan_stop(void);

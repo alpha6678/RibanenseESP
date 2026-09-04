@@ -62,6 +62,14 @@ bool storage_mount(void)
     return true;
 }
 
+bool storage_retry_mount(void)
+{
+    if (s_ready) {
+        return true;
+    }
+    return storage_mount();
+}
+
 bool storage_ready(void)
 {
     return s_ready;

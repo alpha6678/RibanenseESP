@@ -11,6 +11,8 @@
 
 /* Monta FAT32 no microSD (SPI2). false se o cartão não estiver presente. */
 bool storage_mount(void);
+/* Nova tentativa se o cartão ainda não montou (SD frio no boot). */
+bool storage_retry_mount(void);
 bool storage_ready(void);
 esp_err_t storage_write_text(const char *rel_path, const char *text);
 esp_err_t storage_read_text(const char *rel_path, char *out, size_t max);

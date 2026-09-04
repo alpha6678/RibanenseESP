@@ -1,3 +1,3 @@
 idf_component_register(SRCS "net.c" "wifi_store.c"
                     INCLUDE_DIRS "include"
-                    REQUIRES esp_wifi esp_event esp_netif nvs_flash log json storage)
+                    REQUIRES esp_wifi esp_event esp_netif nvs_flash log json storage esp_timer)
