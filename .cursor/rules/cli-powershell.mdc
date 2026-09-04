@@ -1,0 +1,50 @@
+---
+description: Armadilhas de PowerShell na CLI rbesp — retorno de função, caminho com acento
+globs: ferramentas/**
+alwaysApply: false
+---
+
+# PowerShell na CLI `rbesp`
+
+## Saída de processo externo vira retorno de função
+
+Em PowerShell **tudo** que a função escreve no stdout entra no valor de
+retorno. O gerador de NVS do IDF imprime linhas em branco, então
+`New-FactoryWipeNvsBin` devolvia um array de 5 itens em vez do caminho, e o
+`Split-Path` seguinte estourava:
+
+```
+Cannot bind argument to parameter 'Path' because it is an empty string.
+```
+
+```powershell
+# ❌ a saída do python entra no retorno
+& $py -m esp_idf_nvs_partition_gen generate $csv $out $Size
+return $out
+
+# ✅ captura, imprime o que interessa, retorna só o valor
+$genOut = & $py -m esp_idf_nvs_partition_gen generate $csv $out $Size 2>&1
+foreach ($line in @($genOut)) {
+    $text = [string] $line
+    if (-not [string]::IsNullOrWhiteSpace($text)) { Write-Host $text }
+}
+return $out
+```
+
+Ao consumir um valor que veio de função, prefira `[System.IO.Path]::GetFileName([string] $x)`
+a `Split-Path`: falha de tipo aparece na hora, não como bind error.
+
+## Caminho do usuário tem acento
+
+`C:\Users\Usuário\...` quebra em dois lugares diferentes:
+
+- O kconfiglib do IDF não aceita não-ASCII no caminho do projeto — por isso a
+  CLI espelha tudo para `C:\fw` antes de compilar.
+- Alguns cmdlets recebem o caminho curto 8.3 (`C:\Users\USURIO~1`) e falham.
+  Já aconteceu com `Remove-Item` sobre `$env:TEMP`. Em scripts da CLI, use
+  pasta de saída sem acento (ex.: sob `C:\fw`).
+
+## Regra geral
+
+Função de CLI retorna **um** valor. Mensagem para o usuário é `Write-Host`;
+diagnóstico de ferramenta externa é capturado e filtrado.

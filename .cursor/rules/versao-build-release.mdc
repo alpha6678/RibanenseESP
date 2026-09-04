@@ -1,0 +1,52 @@
+---
+description: Versão compilada no binário, reconfigure do CMake e coerência do release do OS
+globs: firmware/**,ferramentas/**
+alwaysApply: false
+---
+
+# Versão, build e release
+
+A versão que a placa anuncia **não** vem do `version.json` em tempo de
+execução: vem de `ribanense_esp_version.h`, gerado pelo CMake no configure a
+partir daquele arquivo.
+
+## O caso de 2026-09-04
+
+`file(READ "${_rbn_version_json}" ...)` lê o arquivo mas **não** registra
+dependência de configure. Resultado: `rbesp bump os` seguido de `rbesp build`
+não reconfigurava, o header ficava com o número anterior e o ninja só
+recompilava o que mudou. O binário publicado como 0.3.6 levava `0.3.5` dentro.
+
+Isso sabota o OTA de forma silenciosa: a placa baixa, grava, reinicia e
+continua se anunciando na versão velha — e o `semver_cmp` do `ota.c` manda
+baixar de novo, para sempre.
+
+Corrigido em `firmware/esp-sdk/components/board/CMakeLists.txt`:
+
+```cmake
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_rbn_version_json}")
+```
+
+## Regras
+
+- Só o `version.json` manda na versão do OS. Nunca editar o header à mão.
+- Se você mexeu em `version.json` e o build **não** imprimiu
+  `-- Configuring done`, o binário está com a versão errada. Confira:
+  `C:\fw\ribanense-esp\build\esp-idf\board\generated\ribanense_esp_version.h`
+- O que a placa baixa é o arquivo em `firmware/ribanense-esp/dist/` na `main`
+  (via `raw.githubusercontent.com`), **não** o asset do GitHub Release. Os
+  dois precisam ser o mesmo binário.
+- `firmware.json` só vale com `url`, `sha256` e `sig` coerentes. Depois de
+  qualquer troca de binário: `rbesp verify`.
+- Republicar a mesma versão (asset trocado) exige mover a tag para o commit
+  que gerou o binário, senão a tag aponta para um código que não é aquele.
+
+## Antes de publicar
+
+```bat
+rbesp doctor
+rbesp verify
+```
+
+E confirme que o SHA256 do que está no GitHub bate com o do manifesto — foi
+assim que validamos a 0.3.6 republicada.

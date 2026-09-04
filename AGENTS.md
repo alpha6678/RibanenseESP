@@ -27,6 +27,20 @@ Docs: [`docs/FIRMWARE_RIBANENSEESP.md`](docs/FIRMWARE_RIBANENSEESP.md),
 | `firmware/apps/<Slug>/` | Apps nativos (projeto IDF + `app.json`). |
 | `secrets/` | Chave privada OTA (local, fora do git). |
 
+## Armadilhas conhecidas
+
+Antes de mexer em firmware, build ou CLI, leia
+[`.cursor/rules/armadilhas-conhecidas.mdc`](.cursor/rules/armadilhas-conhecidas.mdc).
+São erros já reproduzidos na placa física, com sintoma, causa e correção:
+
+1. Pilha de tarefa grande derruba o record TLS de 16 KB e mata o OTA.
+2. `version.json` sem reconfigure do CMake compila a versão antiga no binário.
+3. Saída de processo externo vira retorno de função no PowerShell.
+
+O índice é curto e sempre aplicado; o detalhe fica em um `.mdc` por área.
+Corrigiu algo que custou uma sessão de debug? Acrescente ao índice no mesmo
+commit da correção.
+
 ## Regras de naming
 
 - **Nome público**: **RibanenseESP**.

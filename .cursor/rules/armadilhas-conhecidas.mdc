@@ -1,0 +1,52 @@
+---
+description: Armadilhas já queimadas neste repositório (OTA, versão, CLI) — consultar antes de mudar firmware, build ou ferramentas
+alwaysApply: true
+---
+
+# Armadilhas conhecidas (RibanenseESP)
+
+Cada item abaixo já custou uma sessão inteira de debug numa placa física.
+Antes de propor mudança, plano ou refactor nessas áreas, considere que
+existem. Detalhe (números, comandos, diagnóstico) nos arquivos citados.
+
+## 1. Heap contígua do TLS mata o OTA
+
+**Sintoma** `Dynamic Impl: alloc(16749 bytes) failed` e
+`esp-tls-mbedtls: read error :-0x7F00:`; a UI mostra `falha ao gravar`.
+O manifesto é lido e a assinatura passa — morre ao baixar o `.bin`.
+**Causa** O GitHub manda records TLS de 16 KB e o mbedtls precisa deles
+inteiros e **contíguos**. Pilha de tarefa FreeRTOS sai da mesma heap:
+`xTaskCreate(..., 32768, ...)` consumia o maior bloco livre.
+**Correção** `OTA_TASK_STACK` em 12 KB, `CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n`,
+`CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=2048`.
+**Nunca** aumentar a pilha de tarefa que faz HTTPS, nem baixar
+`CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` de 16384 (4096 quebra o handshake).
+Detalhe: `.cursor/rules/firmware-heap-e-ota.mdc`
+
+## 2. Versão antiga compilada dentro do binário
+
+**Sintoma** A placa recebe o OTA e continua se anunciando na versão anterior,
+ou o asset publicado tem outro número no header.
+**Causa** `file(READ version.json)` no CMake não cria dependência de
+configure; sem reconfigurar, `ribanense_esp_version.h` fica com o valor velho
+e o ninja só recompila o que mudou.
+**Correção** `CMAKE_CONFIGURE_DEPENDS` no `board/CMakeLists.txt`. Antes de
+publicar, confirme `-- Configuring done` no build ou leia o header gerado.
+Detalhe: `.cursor/rules/versao-build-release.mdc`
+
+## 3. Saída de processo vira retorno de função no PowerShell
+
+**Sintoma** `Cannot bind argument to parameter 'Path' because it is an
+empty string` depois de chamar uma ferramenta externa.
+**Causa** Em PowerShell tudo que a função escreve no stdout entra no valor de
+retorno; o gerador de NVS imprime linhas em branco.
+**Correção** Capture em variável e imprima com `Write-Host`; retorne só o valor.
+Detalhe: `.cursor/rules/cli-powershell.mdc`
+
+## Como crescer esta lista
+
+- Uma armadilha = uma seção aqui (sintoma, causa, correção) e, quando
+  precisar de números ou comandos, um `.mdc` de detalhe com `globs` da área.
+- Este índice é `alwaysApply: true` e fica curto; o detalhe é que cresce.
+- Só entra o que já quebrou de verdade. Nada de teoria ou boa prática genérica.
+- Atualize aqui no mesmo commit da correção, com o número real observado.

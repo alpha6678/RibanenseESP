@@ -1,0 +1,66 @@
+---
+description: Heap contígua, TLS e OTA na E32R28T-1 — limites de pilha, mbedtls e como diagnosticar sem cabo
+globs: firmware/**
+alwaysApply: false
+---
+
+# Heap contígua, TLS e OTA
+
+O ESP32-D0WD-V3 desta placa **não tem PSRAM**. HTTPS, LVGL, Wi-Fi e as pilhas
+das tarefas disputam a mesma DRAM interna. O que aperta não é o total livre,
+é o **maior bloco contíguo**.
+
+## O caso de 2026-09-04 (0.3.5 → 0.3.6)
+
+```
+E Dynamic Impl: alloc(16749 bytes) failed
+E esp-tls-mbedtls: read error :-0x7F00:   <- MBEDTLS_ERR_SSL_ALLOC_FAILED
+E esp-tls-mbedtls: read error :-0x7200:   <- INVALID_RECORD, só consequência
+```
+
+`/status` no momento da falha: `heap 84492`, `blk 43008`. A tarefa `ota_pull`
+nascia com **32 KB de pilha** — tirados dessa mesma heap e justamente do maior
+bloco. Não sobrava um vão de 16749 bytes para o record TLS do GitHub.
+
+O manifesto (336 bytes) passava porque cabe em records pequenos. Só o `.bin`
+de 1,4 MB chega em records de 16 KB. Depois da correção, em repouso:
+`blk 81920`.
+
+## Regras
+
+- Tarefa que fala HTTPS usa **12 KB** de pilha (`OTA_TASK_STACK`). Pilha do
+  FreeRTOS sai da heap: cada KB a mais é bloco contíguo a menos.
+- `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384` é obrigatório. O GitHub ignora
+  `max_fragment_length`; com 4096 o handshake cai com `-0x7200`.
+- `CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=2048` basta — só mandamos GET curto.
+- `CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n`: nem o IDF nem este código leem
+  o certificado do par depois do handshake, e guardá-lo custa ~4 KB.
+- Antes de alocar buffer novo no caminho de rede, olhe **`blk`**, não `heap`.
+  Durante o download precisa sobrar mais de ~17000 contíguos.
+- Baixar o binário em HTTP puro não é opção: `raw.githubusercontent.com`
+  responde 301 para HTTPS.
+
+## Diagnóstico sem cabo
+
+```bat
+rbesp logs 192.168.5.188
+```
+
+`GET /status` traz `heap` (total livre) e `blk` (maior bloco). `ota.c` loga
+`download heap= blk= pilha=` ao abrir a conexão do binário; `pilha` é a folga
+mínima da tarefa **em bytes** (o IDF diverge do FreeRTOS baunilha, que devolve
+palavras). Se `pilha` chegar perto de zero, aumente — mas então reveja `blk`.
+
+## Recuperar a placa sem USB
+
+Cliente OTA quebrado não se conserta sozinho: a imagem corrigida precisa
+entrar por USB ou por `POST /update`. A chave é HMAC-SHA256 com o `lanSeed`
+do `version.json` sobre os 6 bytes do MAC, 4 primeiros bytes em hex.
+
+```powershell
+curl.exe -X POST --data-binary "@ribanense-esp-0.3.5.bin" `
+  -H "X-Ribanense-Key: <chave>" -H "Expect:" http://<ip>/update
+```
+
+Para o teste de OTA valer, a placa precisa ficar numa versão **menor** que a
+publicada, e a publicada precisa já conter as correções do cliente.
