@@ -29,6 +29,10 @@
 
 #define TAG "ota"
 #define CHUNK 1024
+/* O GitHub manda records TLS de 16 KB e o mbedtls precisa deles inteiros e
+ * contiguos. A pilha destas tarefas sai da mesma heap, entao 32 KB aqui
+ * derrubavam o alloc de 16749 bytes no meio do download. */
+#define OTA_TASK_STACK 12288
 #define MSG_MAX 48
 #define SLOT_MAX 0x190000u
 #define LOG_RING 10
@@ -271,7 +275,7 @@ static esp_err_t on_probe(httpd_req_t *req)
     if (!s_pull_busy) {
         s_pull_busy = true;
         set_state(OTA_CHECKING, "probe...");
-        if (xTaskCreate(probe_task, "ota_probe", 32768, NULL, 4, NULL) != pdPASS) {
+        if (xTaskCreate(probe_task, "ota_probe", OTA_TASK_STACK, NULL, 4, NULL) != pdPASS) {
             s_pull_busy = false;
             set_state(OTA_ERR, "sem tarefa");
         }
@@ -524,6 +528,10 @@ static esp_err_t http_stream_bin(const char *url, const char *want_sha)
             set_http_err(0, err == ESP_ERR_NO_MEM ? "sem RAM" : "falha no download");
             return err;
         }
+        ESP_LOGI(TAG, "download heap=%u blk=%u pilha=%u",
+                 (unsigned)esp_get_free_heap_size(),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+                 (unsigned)uxTaskGetStackHighWaterMark(NULL));
         int len = (int)esp_http_client_fetch_headers(cli);
         int status = esp_http_client_get_status_code(cli);
         s_http_status = status;
@@ -918,7 +926,7 @@ void ota_pull_start(void)
     }
     s_pull_busy = true;
     set_state(OTA_CHECKING, "buscando...");
-    if (xTaskCreate(pull_task, "ota_pull", 32768, NULL, 4, NULL) != pdPASS) {
+    if (xTaskCreate(pull_task, "ota_pull", OTA_TASK_STACK, NULL, 4, NULL) != pdPASS) {
         s_pull_busy = false;
         set_state(OTA_ERR, "sem tarefa");
     }
