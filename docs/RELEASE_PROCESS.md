@@ -25,13 +25,13 @@ flowchart TB
   A[Commit na main] --> B[rbesp doctor]
   B --> C[rbesp bump os patch]
   C --> D[rbesp publish all --dry-run]
-  D --> E[gh auth switch --user alpha6678]
-  E --> F[rbesp release os x.y.z]
+  D --> F[rbesp release os x.y.z]
   F --> G[firmware.json assinado + dist/ no GitHub]
   G --> H[Placa puxa OTA]
 ```
 
-1. `rbesp doctor` — IDF, `gh` na alpha6678, chave em `secrets/`.
+1. `rbesp doctor` — IDF, conta `alpha6678` logada no `gh`, chave em `secrets/`.
+   A CLI já usa essa conta neste repo; não precisa `gh auth switch`.
 2. Bump ou `rbesp publish all --dry-run` para ver o plano.
 3. `rbesp release os <semver>` (ou `rbesp os release <semver>`):
    - Compila o OS no espelho `C:\fw`

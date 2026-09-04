@@ -1,0 +1,16 @@
+---
+description: Identidade GitHub deste repositório (sempre alpha6678)
+alwaysApply: true
+---
+
+# Conta deste projeto
+
+Este repositório é **só** `alpha6678/RibanenseESP` (`dionerdfrg3@gmail.com`).
+A conta de trabalho `desenvolvimentoLocatelli` não opera aqui.
+
+- Dono: `firmware/ribanense-esp/version.json` (`githubOwner`, `gitEmail`).
+- A CLI (`rbesp`) aplica a identidade local e troca o `gh` só neste repo.
+- `git push` / `gh release` / publish usam `alpha6678`, mesmo se o `gh` ativo do PC for outro.
+- Não altere o `user.*` **global** nem o `gh` padrão do PC.
+- Não crie fork se o Cursor pedir permissão de push: rode `rbesp whoami` e empurre de novo.
+- Depois de um `gh` deste projeto, a CLI devolve a conta ativa anterior.

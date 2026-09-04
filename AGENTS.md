@@ -43,6 +43,10 @@ Docs: [`docs/FIRMWARE_RIBANENSEESP.md`](docs/FIRMWARE_RIBANENSEESP.md),
 - Mudanças pequenas e localizadas sempre que possível.
 - Versão do OS só em `firmware/ribanense-esp/version.json` (o header C é gerado).
 - Manter `IA/` e `secrets/` no `.gitignore`.
+- Identidade deste repo: `alpha6678` / `dionerdfrg3@gmail.com` em
+  `firmware/ribanense-esp/version.json`. A CLI aplica no git local e no
+  `gh` só deste projeto. Não usar `desenvolvimentoLocatelli` aqui nem
+  alterar o git/`gh` global do PC.
 
 ## Comandos úteis
 
@@ -59,7 +63,8 @@ Docs: [`docs/FIRMWARE_RIBANENSEESP.md`](docs/FIRMWARE_RIBANENSEESP.md),
 .\rbesp.cmd app build Sobre
 ```
 
-Antes de `publish`/`release`: `gh auth switch --user alpha6678`.
+`rbesp whoami` mostra a conta travada deste repo. `publish`/`release`
+já usam `alpha6678` sem trocar o `gh` padrão do PC.
 
 ## Quando usar subagentes
 

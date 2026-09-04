@@ -304,22 +304,130 @@ function Set-FirmwareManifestPointer {
 
 function Get-GithubOwnerRepo {
     param([Parameter(Mandatory)] [string] $ProjectRoot)
+    $id = Get-ProjectIdentity -ProjectRoot $ProjectRoot
+    return [pscustomobject]@{ Owner = $id.Owner; Repo = $id.Repo }
+}
+
+function Get-ProjectIdentity {
+    param([Parameter(Mandatory)] [string] $ProjectRoot)
     $info = $null
     try { $info = Get-OsVersionInfo -ProjectRoot $ProjectRoot } catch { $info = $null }
     $owner = if ($info -and $info.githubOwner) { [string] $info.githubOwner } else { 'alpha6678' }
     $repo = if ($info -and $info.githubRepo) { [string] $info.githubRepo } else { 'RibanenseESP' }
+    $email = if ($info -and $info.gitEmail) { [string] $info.gitEmail } else { 'dionerdfrg3@gmail.com' }
+    return [pscustomobject]@{
+        Owner   = $owner
+        Repo    = $repo
+        Name    = $owner
+        Email   = $email
+        Remote  = "https://github.com/$owner/$repo.git"
+    }
+}
+
+function Get-GhActiveUser {
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        return $null
+    }
+    $login = (& gh api user --jq '.login' 2>$null)
+    if ($login) { return [string] $login }
+    $status = & gh auth status 2>&1 | Out-String
+    if ($status -match 'Logged in to github.com account (\S+) \(keyring\)\s+[\s\S]*?Active account: true') {
+        return $Matches[1]
+    }
+    return $null
+}
+
+function Sync-ProjectIdentity {
+    param(
+        [Parameter(Mandatory)] [string] $ProjectRoot,
+        [switch] $Quiet
+    )
+    $id = Get-ProjectIdentity -ProjectRoot $ProjectRoot
+    $changed = @()
     Push-Location $ProjectRoot
     try {
-        $url = & git remote get-url origin 2>$null
-        # Aceita github.com e alias SSH (github.com-pessoal).
-        if ($LASTEXITCODE -eq 0 -and $url -match 'github\.com(?:-[^:/]+)?[:/]([^/]+)/([^/.]+)') {
-            $owner = $Matches[1]
-            $repo = $Matches[2]
+        $curName = (& git config --local --get user.name 2>$null)
+        $curEmail = (& git config --local --get user.email 2>$null)
+        if ($curName -ne $id.Name) {
+            & git config --local user.name $id.Name
+            $changed += "user.name=$($id.Name)"
+        }
+        if ($curEmail -ne $id.Email) {
+            & git config --local user.email $id.Email
+            $changed += "user.email=$($id.Email)"
+        }
+        $url = (& git remote get-url origin 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $url -and $url -ne $id.Remote) {
+            if ($url -notmatch [regex]::Escape("$($id.Owner)/$($id.Repo)")) {
+                throw "origin aponta para $url. Este repo e $($id.Owner)/$($id.Repo)."
+            }
+            & git remote set-url origin $id.Remote
+            $changed += "origin=$($id.Remote)"
+        }
+        $helperCmd = Join-Path $PSScriptRoot 'git-credential-ribanense.cmd'
+        $helperUnix = ($helperCmd -replace '\\', '/')
+        $wantHelper = '!"' + $helperUnix + '"'
+        $helpers = @(& git config --local --get-all credential.helper 2>$null)
+        $joined = ($helpers -join '|')
+        if ($joined -notmatch 'git-credential-ribanense') {
+            & git config --local --unset-all credential.helper 2>$null
+            & git config --local credential.helper $wantHelper
+            $changed += 'credential.helper=ribanense'
+        }
+        $credUser = (& git config --local --get credential.https://github.com.username 2>$null)
+        if ($credUser -ne $id.Owner) {
+            & git config --local credential.https://github.com.username $id.Owner
+            $changed += "credential.username=$($id.Owner)"
         }
     } finally {
         Pop-Location
     }
-    return [pscustomobject]@{ Owner = $owner; Repo = $repo }
+    if (-not $Quiet -and $changed.Count -gt 0) {
+        Write-Host ("Identidade do projeto: " + ($changed -join '; ')) -ForegroundColor Cyan
+    }
+    return $id
+}
+
+function Invoke-WithProjectGithub {
+    param(
+        [Parameter(Mandatory)] [string] $ProjectRoot,
+        [Parameter(Mandatory)] [scriptblock] $Script
+    )
+    $id = Get-ProjectIdentity -ProjectRoot $ProjectRoot
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        throw "GitHub CLI (gh) nao encontrado."
+    }
+    $prev = Get-GhActiveUser
+    $switched = $false
+    if ($prev -ne $id.Owner) {
+        & gh auth switch --user $id.Owner
+        if ($LASTEXITCODE -ne 0) {
+            throw "gh precisa da conta $($id.Owner) neste repo. Entre com: gh auth login"
+        }
+        $switched = $true
+        Write-Host "gh -> $($id.Owner) (volta para $prev no fim)" -ForegroundColor Cyan
+    }
+    try {
+        & $Script
+    } finally {
+        if ($switched -and $prev) {
+            & gh auth switch --user $prev 2>$null | Out-Null
+        }
+    }
+}
+
+function Invoke-ProjectGh {
+    param(
+        [Parameter(Mandatory)] [string] $ProjectRoot,
+        [Parameter(Mandatory)] [string[]] $GhArgs
+    )
+    $toRun = $GhArgs
+    Invoke-WithProjectGithub -ProjectRoot $ProjectRoot -Script {
+        & gh @toRun
+        if ($LASTEXITCODE -ne 0) {
+            throw "gh $($toRun -join ' ') falhou (codigo $LASTEXITCODE)."
+        }
+    }.GetNewClosure()
 }
 
 function Write-Sha256Sidecar {

@@ -13,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 $ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $ProjectRoot = Split-Path -Parent $ScriptRoot
 . (Join-Path $ScriptRoot 'esp-idf-env.ps1')
+$null = Sync-ProjectIdentity -ProjectRoot $ProjectRoot -Quiet
 
 function Show-Help {
     @"
@@ -24,7 +25,8 @@ Uso:  rbesp <comando> [args]
 
 Comandos:
   help                         Esta ajuda
-  doctor                       Confere IDF, porta USB, gh, chave e URLs
+  doctor                       Confere IDF, porta USB, identidade, chave e URLs
+  whoami                       Conta Git/GitHub deste projeto (alpha6678)
   version                      Mostra versoes do OS e dos apps
   list                         Lista OS e apps da placa
   ports                        Lista portas seriais (marca a CH340)
@@ -49,7 +51,7 @@ Primeiro USB (placa nova ou recuperacao):
 
 Aliases: os=esp, build=compilar, flash=gravar, publish=empacotar, list=ls
 Porta: argumento COMx, senao RIBANENSE_PORT, senao CH340 detectada.
-Conta GitHub para release: gh auth switch --user alpha6678
+Conta deste repo: version.json (githubOwner/gitEmail). A CLI troca o gh so aqui.
 "@ | Write-Host
 }
 
@@ -177,6 +179,19 @@ function Invoke-AppMirrorBuild {
     Invoke-IdfBuild -ProjectDir $appMirror -ExtraArgs $IdfArgs
 }
 
+function Invoke-Whoami {
+    $id = Sync-ProjectIdentity -ProjectRoot $ProjectRoot
+    $gitName = (& git -C $ProjectRoot config --local --get user.name)
+    $gitEmail = (& git -C $ProjectRoot config --local --get user.email)
+    $origin = (& git -C $ProjectRoot remote get-url origin)
+    $ghPc = Get-GhActiveUser
+    Write-Host "projeto   $($id.Owner)/$($id.Repo)"
+    Write-Host "git       $gitName <$gitEmail>"
+    Write-Host "origin    $origin"
+    Write-Host "gh PC     $(if ($ghPc) { $ghPc } else { '(nao logado)' })"
+    Write-Host "gh repo   $($id.Owner)  (rbesp publish/release e git push deste repo)"
+}
+
 function Invoke-Doctor {
     $script:ok = $true
     function Note([bool] $Good, [string] $Msg) {
@@ -185,22 +200,24 @@ function Invoke-Doctor {
     }
     $idf = Test-Path -LiteralPath 'C:\esp\esp-idf\tools\idf.py'
     Note $idf "ESP-IDF em C:\esp\esp-idf"
+    $id = Sync-ProjectIdentity -ProjectRoot $ProjectRoot -Quiet
     $gh = [bool] (Get-Command gh -ErrorAction SilentlyContinue)
     Note $gh "GitHub CLI (gh)"
     if ($gh) {
-        $status = & gh auth status 2>&1 | Out-String
-        $active = if ($status -match 'Logged in to github.com account (\S+) \(keyring\)\s+.*Active account: true') {
-            $Matches[1]
-        } elseif ($status -match 'Active account: true[\s\S]*account (\S+)') {
-            $Matches[1]
-        } else { '' }
-        $login = (& gh api user --jq '.login' 2>$null)
-        if (-not $login) { $login = $active }
-        Write-Host "[..] gh ativo: $login" -ForegroundColor Cyan
-        if ($login -and $login -ne 'alpha6678') {
-            Write-Host "[..] gh ativo e $login. Flash USB nao depende disso. Publish/release: gh auth switch --user alpha6678" -ForegroundColor Yellow
+        $hasOwner = $false
+        $token = & gh auth token --user $id.Owner 2>$null
+        if ($token) { $hasOwner = $true }
+        Note $hasOwner "Conta gh $($id.Owner) logada (publish/release usam ela)"
+        $login = Get-GhActiveUser
+        if ($login -and $login -ne $id.Owner) {
+            Write-Host "[..] gh ativo do PC: $login. Neste repo a CLI usa $($id.Owner)." -ForegroundColor Cyan
+        } elseif ($login) {
+            Write-Host "[OK] gh ativo: $login" -ForegroundColor Green
         }
     }
+    $gitName = (& git -C $ProjectRoot config --local --get user.name)
+    $gitEmail = (& git -C $ProjectRoot config --local --get user.email)
+    Note ($gitName -eq $id.Name -and $gitEmail -eq $id.Email) "git local $($id.Name) <$($id.Email)>"
     $ports = @(Get-RibanenseSerialPorts | Where-Object { $_.Board })
     if ($ports.Count -eq 0) {
         Write-Host "[..] Nenhuma CH340. Conecte o USB-C para flash inicial." -ForegroundColor Yellow
@@ -479,6 +496,7 @@ if ($t0 -eq 'app') {
 switch ($t0) {
     { $_ -in @('help', '?', '-h', '--help') } { Show-Help }
     'doctor' { Invoke-Doctor }
+    { $_ -in @('whoami', 'auth', 'user') } { Invoke-Whoami }
     { $_ -in @('version', 'versao') } { Invoke-ShowVersions }
     { $_ -in @('list', 'ls', 'apps') } { Invoke-List }
     { $_ -in @('build', 'compilar') } { Invoke-OsMirrorBuild }

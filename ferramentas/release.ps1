@@ -131,8 +131,7 @@ try {
     if ($kind -eq 'esp-app' -and (Test-Path -LiteralPath $manifestPath)) {
         $ghArgs += $manifestPath
     }
-    & gh @ghArgs
-    if ($LASTEXITCODE -ne 0) { throw "gh release create falhou." }
+    Invoke-ProjectGh -ProjectRoot $ProjectRoot -GhArgs $ghArgs
 
     $hash = ((Get-Content -LiteralPath $shaPath -Raw).Trim() -split '\s+')[0]
     if ($kind -eq 'os') {

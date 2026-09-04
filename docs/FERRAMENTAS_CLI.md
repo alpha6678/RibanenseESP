@@ -20,7 +20,8 @@ CLI deste repositório (firmware RibanenseESP). Não há solution .NET aqui.
 | Comando | Sinônimos | Ação |
 |---------|-----------|------|
 | `help` | `?`, `-h` | Ajuda. |
-| `doctor` | — | Confere IDF, CH340, `gh`, openssl, chave e URLs. Conta GitHub errada só avisa. |
+| `doctor` | — | Confere IDF, CH340, identidade `alpha6678`, openssl, chave e URLs. |
+| `whoami` | `auth`, `user` | Mostra e aplica a conta Git/GitHub deste projeto. |
 | `version` | `versao` | Versão do OS (`version.json`) e dos apps. |
 | `list` | `ls`, `apps` | Lista OS e apps em `firmware/apps`. |
 | `ports` | `portas`, `com` | Lista COMx; marca a CH340 da E32R28T-1. |
@@ -48,7 +49,7 @@ rbesp bump os patch
 rbesp publish all --dry-run
 rbesp os release 0.3.6
 rbesp app build Sobre
-gh auth switch --user alpha6678
+rbesp whoami
 ```
 
 ## Flash inicial (USB-C)
@@ -88,11 +89,17 @@ para `C:\fw` (ou `RIBANENSE_IDF_MIRROR`) e chama `build_idf.bat`
 
 ## Conta GitHub
 
-Neste PC convivem `desenvolvimentoLocatelli` e `alpha6678`. Releases deste
-repo usam a conta pessoal:
+Dono fixo em [`firmware/ribanense-esp/version.json`](../firmware/ribanense-esp/version.json):
+`githubOwner` + `gitEmail` (`alpha6678` / `dionerdfrg3@gmail.com`).
+
+Cada `rbesp` aplica essa identidade no git **local** (nome, e-mail, helper
+de credencial). `publish`/`release` chamam `gh` como `alpha6678` e
+devolvem a conta ativa do PC. O `git push` deste repo não depende do `gh`
+ativo — o helper `ferramentas/git-credential-ribanense.cmd` pede o token
+de `alpha6678`.
 
 ```bat
-gh auth switch --user alpha6678
+rbesp whoami
 rbesp doctor
 ```
 
