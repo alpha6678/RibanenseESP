@@ -3,6 +3,7 @@
 #include "ribanense_esp_version.h"
 #include "storage.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -139,117 +140,174 @@ int store_catalog_copy(store_remote_t *out, int max)
 }
 
 #define HTTP_UA "RibanenseESP"
+#define HTTP_URL_MAX 2048
+#define HTTP_HOPS 8
+#define HTTP_RX_MAX 2048
+#define HTTP_TX_MAX 2048
+#define CATALOG_FILE_MAX 8192
 
-typedef struct {
-    FILE *f;
-    mbedtls_sha256_context *sha;
-    esp_err_t err;
-} file_acc_t;
+static bool http_is_redirect(int status)
+{
+    return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+}
 
-static void http_fill(esp_http_client_config_t *c, const char *url, int timeout_ms,
-                      http_event_handle_cb cb, void *user)
+static void http_fill(esp_http_client_config_t *c, const char *url, int timeout_ms)
 {
     memset(c, 0, sizeof(*c));
     c->url = url;
     c->timeout_ms = timeout_ms;
     c->crt_bundle_attach = esp_crt_bundle_attach;
-    c->max_redirection_count = 8;
     c->user_agent = HTTP_UA;
-    c->event_handler = cb;
-    c->user_data = user;
-    c->buffer_size = 2048;
+    c->disable_auto_redirect = true;
+    c->buffer_size = HTTP_RX_MAX;
+    c->buffer_size_tx = HTTP_TX_MAX;
     if (strncmp(url, "https://", 8) == 0) {
         c->transport_type = HTTP_TRANSPORT_OVER_SSL;
         c->tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_2;
     }
 }
 
-static esp_err_t on_http_file(esp_http_client_event_t *e)
+static esp_err_t http_follow(esp_http_client_handle_t cli, char *url, size_t max)
 {
-    file_acc_t *a = e->user_data;
-    if (e->event_id != HTTP_EVENT_ON_DATA || a->err != ESP_OK || e->data == NULL || e->data_len <= 0) {
-        return ESP_OK;
+    char *loc = NULL;
+    if (esp_http_client_get_header(cli, "Location", &loc) != ESP_OK || loc == NULL || loc[0] == 0) {
+        return ESP_FAIL;
     }
-    if (a->f == NULL || fwrite(e->data, 1, (size_t)e->data_len, a->f) != (size_t)e->data_len) {
-        a->err = ESP_FAIL;
-        return ESP_OK;
+    if (strncmp(loc, "http://", 7) != 0 && strncmp(loc, "https://", 8) != 0) {
+        return ESP_FAIL;
     }
-    mbedtls_sha256_update(a->sha, e->data, (size_t)e->data_len);
+    strncpy(url, loc, max - 1);
+    url[max - 1] = 0;
     return ESP_OK;
 }
 
-static esp_err_t http_get_text(const char *url, char *out, int cap)
+static esp_http_client_handle_t http_open(const char *url, int timeout_ms, esp_err_t *out_err)
 {
-    out[0] = 0;
-    esp_http_client_config_t c = {
-        .url = url,
-        .timeout_ms = 20000,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .user_agent = HTTP_UA,
-        .disable_auto_redirect = true,
-        .buffer_size = 2048,
-        .transport_type = HTTP_TRANSPORT_OVER_SSL,
-        .tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_2,
-    };
+    *out_err = ESP_FAIL;
+    esp_http_client_config_t c;
+    http_fill(&c, url, timeout_ms);
     esp_http_client_handle_t cli = esp_http_client_init(&c);
     if (cli == NULL) {
-        return ESP_FAIL;
+        *out_err = ESP_ERR_NO_MEM;
+        return NULL;
     }
     esp_err_t err = esp_http_client_open(cli, 0);
     if (err != ESP_OK) {
+        *out_err = err;
+        ESP_LOGE(TAG, "open %s err=%s", url, esp_err_to_name(err));
         esp_http_client_cleanup(cli);
-        return err;
+        return NULL;
     }
-    (void)esp_http_client_fetch_headers(cli);
-    int status = esp_http_client_get_status_code(cli);
-    int acc = 0;
-    int n;
-    while (acc < cap - 1 && (n = esp_http_client_read(cli, out + acc, cap - 1 - acc)) > 0) {
-        acc += n;
-        out[acc] = 0;
+    *out_err = ESP_OK;
+    return cli;
+}
+
+static char *http_url_dup(const char *url)
+{
+    char *p = malloc(HTTP_URL_MAX);
+    if (p == NULL) {
+        return NULL;
     }
-    esp_http_client_close(cli);
-    esp_http_client_cleanup(cli);
-    return (status == 200 && acc > 0) ? ESP_OK : ESP_FAIL;
+    strncpy(p, url ? url : "", HTTP_URL_MAX - 1);
+    p[HTTP_URL_MAX - 1] = 0;
+    return p;
 }
 
 static esp_err_t http_to_file(const char *url, const char *abs, char *sha_out)
 {
     FILE *f = fopen(abs, "wb");
     if (f == NULL) {
+        ESP_LOGE(TAG, "nao abriu %s errno=%d %s", abs, errno, strerror(errno));
         return ESP_FAIL;
+    }
+
+    char *current = http_url_dup(url);
+    if (current == NULL) {
+        fclose(f);
+        unlink(abs);
+        return ESP_ERR_NO_MEM;
     }
     mbedtls_sha256_context sha;
     mbedtls_sha256_init(&sha);
     mbedtls_sha256_starts(&sha, 0);
-    file_acc_t acc = {.f = f, .sha = &sha, .err = ESP_OK};
-    esp_http_client_config_t c;
-    http_fill(&c, url, 60000, on_http_file, &acc);
-    esp_http_client_handle_t cli = esp_http_client_init(&c);
-    if (cli == NULL) {
+
+    for (int hop = 0; hop < HTTP_HOPS; hop++) {
+        esp_err_t err = ESP_OK;
+        esp_http_client_handle_t cli = http_open(current, 60000, &err);
+        if (cli == NULL) {
+            mbedtls_sha256_free(&sha);
+            fclose(f);
+            free(current);
+            return err;
+        }
+        (void)esp_http_client_fetch_headers(cli);
+        int status = esp_http_client_get_status_code(cli);
+        if (http_is_redirect(status)) {
+            err = http_follow(cli, current, HTTP_URL_MAX);
+            esp_http_client_close(cli);
+            esp_http_client_cleanup(cli);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "redirect sem Location (%d)", status);
+                mbedtls_sha256_free(&sha);
+                fclose(f);
+                free(current);
+                return ESP_FAIL;
+            }
+            ESP_LOGI(TAG, "redirect %d", status);
+            continue;
+        }
+        if (status != 200) {
+            ESP_LOGE(TAG, "GET status=%d", status);
+            esp_http_client_close(cli);
+            esp_http_client_cleanup(cli);
+            mbedtls_sha256_free(&sha);
+            fclose(f);
+            free(current);
+            unlink(abs);
+            return ESP_FAIL;
+        }
+
+        int n;
+        int total = 0;
+        while ((n = esp_http_client_read(cli, (char *)s_chunk, CHUNK)) > 0) {
+            if (fwrite(s_chunk, 1, (size_t)n, f) != (size_t)n) {
+                err = ESP_FAIL;
+                break;
+            }
+            mbedtls_sha256_update(&sha, s_chunk, (size_t)n);
+            total += n;
+        }
+        esp_http_client_close(cli);
+        esp_http_client_cleanup(cli);
+        fflush(f);
         fclose(f);
+        if (err != ESP_OK || n < 0 || total <= 0) {
+            ESP_LOGE(TAG, "leitura err=%s n=%d total=%d", esp_err_to_name(err), n, total);
+            mbedtls_sha256_free(&sha);
+            free(current);
+            unlink(abs);
+            return ESP_FAIL;
+        }
+
+        uint8_t dig[32];
+        mbedtls_sha256_finish(&sha, dig);
         mbedtls_sha256_free(&sha);
-        return ESP_FAIL;
+        free(current);
+        static const char *h = "0123456789abcdef";
+        for (int i = 0; i < 32; i++) {
+            sha_out[i * 2] = h[dig[i] >> 4];
+            sha_out[i * 2 + 1] = h[dig[i] & 0xf];
+        }
+        sha_out[64] = 0;
+        ESP_LOGI(TAG, "baixou %d bytes", total);
+        return ESP_OK;
     }
-    esp_err_t err = esp_http_client_perform(cli);
-    int status = esp_http_client_get_status_code(cli);
-    esp_http_client_cleanup(cli);
-    fflush(f);
-    fclose(f);
-    if (err != ESP_OK || status != 200 || acc.err != ESP_OK) {
-        mbedtls_sha256_free(&sha);
-        return ESP_FAIL;
-    }
-    uint8_t dig[32];
-    mbedtls_sha256_finish(&sha, dig);
     mbedtls_sha256_free(&sha);
-    static const char *h = "0123456789abcdef";
-    for (int i = 0; i < 32; i++) {
-        sha_out[i * 2] = h[dig[i] >> 4];
-        sha_out[i * 2 + 1] = h[dig[i] & 0xf];
-    }
-    sha_out[64] = 0;
-    return ESP_OK;
+    fclose(f);
+    free(current);
+    unlink(abs);
+    ESP_LOGE(TAG, "GET hops esgotados");
+    return ESP_FAIL;
 }
 
 static int hex_eq(const char *a, const char *b)
@@ -368,16 +426,66 @@ static void refresh_installed_flags(void)
 static void catalog_task(void *arg)
 {
     (void)arg;
-    char *json = malloc(4096);
-    if (json == NULL) {
-        set_msg(STORE_ERR, "sem RAM");
+    if (!storage_ready()) {
+        set_msg(STORE_ERR, "sem SD");
         s_busy = false;
         vTaskDelete(NULL);
         return;
     }
     set_msg(STORE_BUSY, "catalogo...");
     (void)net_time_wait(20000);
-    if (http_get_text(RIBANENSEESP_CATALOG_URL, json, 4096) != ESP_OK) {
+    if (storage_mkdir(STORAGE_CACHE_DIR) != ESP_OK) {
+        ESP_LOGW(TAG, "mkdir %s errno=%d %s", STORAGE_CACHE_DIR, errno, strerror(errno));
+    }
+    char abs[160];
+    const char *rels[] = {
+        STORAGE_CACHE_DIR "/catalog.json",
+        STORAGE_OS_DIR "/catalog.json",
+        "catalog.json",
+    };
+    bool got_path = false;
+    for (int i = 0; i < 3; i++) {
+        if (storage_abs(rels[i], abs, sizeof(abs)) != ESP_OK) {
+            continue;
+        }
+        FILE *probe = fopen(abs, "wb");
+        if (probe != NULL) {
+            fclose(probe);
+            unlink(abs);
+            got_path = true;
+            break;
+        }
+        ESP_LOGW(TAG, "cache %s errno=%d %s", abs, errno, strerror(errno));
+    }
+    if (!got_path) {
+        set_msg(STORE_ERR, "sem catalogo");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    unlink(abs);
+    char sha[68];
+    if (http_to_file(RIBANENSEESP_CATALOG_URL, abs, sha) != ESP_OK) {
+        set_msg(STORE_ERR, "sem catalogo");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    struct stat st;
+    if (stat(abs, &st) != 0 || st.st_size <= 0 || st.st_size > CATALOG_FILE_MAX) {
+        set_msg(STORE_ERR, "catalogo invalido");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    char *json = malloc((size_t)st.st_size + 1);
+    if (json == NULL) {
+        set_msg(STORE_ERR, "sem RAM");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    if (read_text(abs, json, (int)st.st_size + 1) < 0) {
         free(json);
         set_msg(STORE_ERR, "sem catalogo");
         s_busy = false;
@@ -454,9 +562,15 @@ static void install_task(void *arg)
     }
 
     set_msg(STORE_BUSY, "baixando...");
-    (void)storage_mkdir("tmp");
+    ESP_LOGI(TAG, "baixando %s", src->url);
+    (void)storage_mkdir(STORAGE_TMP_DIR);
     char zip[160];
-    snprintf(zip, sizeof(zip), "%s/tmp/pkg.zip", STORAGE_MOUNT);
+    if (storage_abs(STORAGE_TMP_DIR "/pkg.zip", zip, sizeof(zip)) != ESP_OK) {
+        set_msg(STORE_ERR, "falha no download");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
     unlink(zip);
     char sha[68];
     if (http_to_file(src->url, zip, sha) != ESP_OK) {
