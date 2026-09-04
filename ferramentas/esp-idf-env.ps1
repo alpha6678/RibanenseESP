@@ -70,6 +70,9 @@ function Invoke-IdfBuild {
     try {
         & cmd.exe /c "`"$bat`" $($ExtraArgs -join ' ')"
         if ($LASTEXITCODE -ne 0) {
+            if ($ExtraArgs -contains 'monitor') {
+                return
+            }
             throw "idf.py $($ExtraArgs -join ' ') falhou em $ProjectDir (codigo $LASTEXITCODE)."
         }
     }

@@ -31,8 +31,9 @@ Comandos:
   list                         Lista OS e apps da placa
   ports                        Lista portas seriais (marca a CH340)
   build                        Compila o OS (espelho C:\fw)
-  flash [COM] [--primeiro]     Compila e grava o OS (detecta CH340)
-  monitor [COM]                Serial do IDF, sem recompilar
+  flash [COM] [--primeiro|--zero]
+                               Compila e grava o OS (detecta CH340)
+  monitor [COM]                Serial do IDF, sem recompilar (Ctrl+C sai)
   app build <Slug>             Compila um app em firmware/apps
   app flash <Slug> [COM]       Grava o app no chip (substitui o OS)
   bump os|<Slug> [patch|minor|major]
@@ -48,8 +49,9 @@ Comandos:
 Primeiro USB (placa nova ou recuperacao):
   rbesp ports
   rbesp flash --primeiro
+  rbesp flash --zero           Flash do zero + formata o microSD no 1o boot
 
-Aliases: os=esp, build=compilar, flash=gravar, publish=empacotar, list=ls
+Aliases: os=esp, build=compilar, flash=gravar, zero=fabrica, publish=empacotar, list=ls
 Porta: argumento COMx, senao RIBANENSE_PORT, senao CH340 detectada.
 Conta deste repo: version.json (githubOwner/gitEmail). A CLI troca o gh so aqui.
 "@ | Write-Host
@@ -133,19 +135,133 @@ function Get-FlashOptions {
     param([string[]] $Items)
     $port = $null
     $erase = $false
+    $zero = $false
     foreach ($a in @($Items)) {
         if ($a -match '^COM\d+$') { $port = $a; continue }
         if ($a -in @('--primeiro', '--first', '--erase', '-e')) { $erase = $true; continue }
+        if ($a -in @('--zero', '--fabrica', '--factory', '-z')) { $zero = $true; $erase = $true; continue }
+        if ($a.StartsWith('-')) { throw "Opcao desconhecida: $a" }
+        throw "Argumento inesperado: $a"
     }
-    [pscustomobject]@{ Port = $port; Erase = $erase }
+    [pscustomobject]@{ Port = $port; Erase = $erase; Zero = $zero }
+}
+
+function Get-IdfPythonExe {
+    $candidates = @()
+    if ($env:IDF_PYTHON_ENV_PATH) {
+        $candidates += (Join-Path $env:IDF_PYTHON_ENV_PATH 'Scripts\python.exe')
+    }
+    $candidates += 'C:\esp\tools\python_env\idf5.3_py3.14_env\Scripts\python.exe'
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path -LiteralPath $c)) { return $c }
+    }
+    throw "Python do ESP-IDF nao encontrado."
+}
+
+function Get-IdfRootPath {
+    if ($env:IDF_PATH -and (Test-Path -LiteralPath (Join-Path $env:IDF_PATH 'tools\idf.py'))) {
+        return $env:IDF_PATH
+    }
+    if (Test-Path -LiteralPath 'C:\esp\esp-idf\tools\idf.py') {
+        return 'C:\esp\esp-idf'
+    }
+    throw "ESP-IDF nao encontrado. Instale em C:\esp\esp-idf ou defina IDF_PATH."
+}
+
+function Get-NvsPartitionSpec {
+    param([Parameter(Mandatory)] [string] $OsProjectDir)
+    $csv = Join-Path $OsProjectDir 'partitions_4mb_two_ota.csv'
+    if (-not (Test-Path -LiteralPath $csv)) {
+        throw "Tabela de particoes nao encontrada: $csv"
+    }
+    foreach ($line in Get-Content -LiteralPath $csv) {
+        $trim = $line.Trim()
+        if (-not $trim -or $trim.StartsWith('#')) { continue }
+        $parts = @($trim.Split(',') | ForEach-Object { $_.Trim() })
+        if ($parts.Count -lt 5 -or $parts[0] -ne 'nvs') { continue }
+        return [pscustomobject]@{ Offset = $parts[3]; Size = $parts[4].TrimEnd(',') }
+    }
+    throw "Particao nvs nao encontrada em $csv"
+}
+
+function New-FactoryWipeNvsBin {
+    param(
+        [Parameter(Mandatory)] [string] $OsMirror,
+        [Parameter(Mandatory)] [string] $Size
+    )
+    $csv = Join-Path $ScriptRoot 'nvs-factory-wipe.csv'
+    if (-not (Test-Path -LiteralPath $csv)) {
+        throw "CSV do NVS factory ausente: $csv"
+    }
+    $build = Join-Path $OsMirror 'build'
+    New-Item -ItemType Directory -Path $build -Force | Out-Null
+    $out = Join-Path $build 'nvs_factory_wipe.bin'
+    $py = Get-IdfPythonExe
+    Write-Host "Gerando NVS factory (wipe_sd) $Size ..." -ForegroundColor Cyan
+    & $py -m esp_idf_nvs_partition_gen generate $csv $out $Size
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $out)) {
+        throw "Falha ao gerar $out"
+    }
+    return $out
+}
+
+function Invoke-OsFactoryFlash {
+    param([Parameter(Mandatory)] [string] $Port)
+    $osMirror = Sync-OsMirror -ProjectRoot $ProjectRoot
+    Invoke-IdfBuild -ProjectDir $osMirror -ExtraArgs @('build')
+
+    $nvs = Get-NvsPartitionSpec -OsProjectDir (Join-Path $ProjectRoot 'firmware\ribanense-esp')
+    $nvsBin = New-FactoryWipeNvsBin -OsMirror $osMirror -Size $nvs.Size
+    $build = Join-Path $osMirror 'build'
+    $argsPath = Join-Path $build 'flasher_args.json'
+    if (-not (Test-Path -LiteralPath $argsPath)) {
+        throw "flasher_args.json ausente: $argsPath"
+    }
+    $flash = Get-Content -LiteralPath $argsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $chip = [string] $flash.extra_esptool_args.chip
+    if (-not $chip) { $chip = 'esp32' }
+
+    $cmd = @(
+        '-m', 'esptool',
+        '--chip', $chip,
+        '-p', $Port,
+        '-b', '460800',
+        'write_flash',
+        '--erase-all'
+    )
+    foreach ($a in @($flash.write_flash_args)) { $cmd += [string] $a }
+
+    $pairs = @()
+    foreach ($p in $flash.flash_files.PSObject.Properties) {
+        $pairs += [pscustomobject]@{ Offset = [string] $p.Name; File = [string] $p.Value }
+    }
+    $pairs += [pscustomobject]@{ Offset = $nvs.Offset; File = (Split-Path -Leaf $nvsBin) }
+    foreach ($p in ($pairs | Sort-Object { [uint32] $_.Offset })) {
+        $cmd += @($p.Offset, $p.File)
+    }
+
+    $py = Get-IdfPythonExe
+    Write-Host "Flash de fabrica em $Port — apaga a flash, grava o OS e marca o microSD para formatar no primeiro mount." -ForegroundColor Cyan
+    Write-Host "Wi-Fi da flash e dados do cartao somem. Deixe o microSD na placa." -ForegroundColor Yellow
+    Push-Location $build
+    try {
+        & $py @cmd
+        if ($LASTEXITCODE -ne 0) {
+            throw "esptool write_flash --erase-all falhou (codigo $LASTEXITCODE)."
+        }
+    } finally {
+        Pop-Location
+    }
 }
 
 function Invoke-OsFlash {
-    param([string] $Port, [switch] $Erase)
+    param([string] $Port, [switch] $Erase, [switch] $Zero)
     $port = Resolve-RibanensePort $Port
-    if ($Erase) {
+    if ($Zero) {
+        Invoke-OsFactoryFlash -Port $port
+    } elseif ($Erase) {
         Write-Host "Flash inicial em $port — apaga a flash e grava bootloader + particoes + OS." -ForegroundColor Cyan
-        Write-Host "NVS e Wi-Fi da placa somem. OTA so funciona depois deste USB." -ForegroundColor Yellow
+        Write-Host "NVS e Wi-Fi da placa somem. O microSD nao e apagado." -ForegroundColor Yellow
         Invoke-OsMirrorBuild -IdfArgs @('-p', $port, 'erase-flash', 'flash')
     } else {
         Write-Host "Gravando OS em $port (bootloader + particoes + app, sem apagar NVS)." -ForegroundColor Cyan
@@ -160,8 +276,19 @@ function Invoke-OsMonitor {
     if (-not (Test-Path -LiteralPath (Join-Path $osMirror 'build_idf.bat'))) {
         $osMirror = Sync-OsMirror -ProjectRoot $ProjectRoot
     }
-    Write-Host "Monitor $port (sem rebuild). Ctrl+] para sair." -ForegroundColor Cyan
-    Invoke-IdfBuild -ProjectDir $osMirror -ExtraArgs @('-p', $port, 'monitor')
+    Write-Host "Monitor $port (sem rebuild). Ctrl+C para sair." -ForegroundColor Cyan
+    $cfg = Join-Path $ScriptRoot 'esp-idf-monitor.cfg'
+    $sitecustomize = Join-Path $ScriptRoot 'idf-monitor-sitecustomize'
+    $prevCfg = $env:ESP_IDF_MONITOR_CFGFILE
+    $prevPy = $env:PYTHONPATH
+    $env:ESP_IDF_MONITOR_CFGFILE = $cfg
+    $env:PYTHONPATH = if ($prevPy) { "$sitecustomize;$prevPy" } else { $sitecustomize }
+    try {
+        Invoke-IdfBuild -ProjectDir $osMirror -ExtraArgs @('-p', $port, 'monitor')
+    } finally {
+        if ($null -ne $prevCfg) { $env:ESP_IDF_MONITOR_CFGFILE = $prevCfg } else { Remove-Item Env:ESP_IDF_MONITOR_CFGFILE -ErrorAction SilentlyContinue }
+        if ($null -ne $prevPy) { $env:PYTHONPATH = $prevPy } else { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue }
+    }
 }
 
 function Invoke-AppMirrorBuild {
@@ -454,6 +581,9 @@ if ($t0 -in @('os', 'esp', 'ribanenseesp')) {
             { $_ -in @('build', 'compilar') } { Invoke-AppMirrorBuild -Slug $slug; break }
             { $_ -in @('flash', 'gravar') } {
                 $opt = Get-FlashOptions $more
+                if ($opt.Zero -or $opt.Erase) {
+                    throw "app flash nao aceita --zero/--primeiro. Use rbesp flash --zero no OS."
+                }
                 Write-Host "Isto substitui o OS no chip pelo app $slug." -ForegroundColor Yellow
                 Invoke-AppMirrorBuild -Slug $slug -IdfArgs @('-p', (Resolve-RibanensePort $opt.Port), 'flash')
                 break
@@ -479,6 +609,9 @@ if ($t0 -eq 'app') {
         { $_ -in @('build', 'compilar') } { Invoke-AppMirrorBuild -Slug $slug; break }
         { $_ -in @('flash', 'gravar') } {
             $opt = Get-FlashOptions $more
+            if ($opt.Zero -or $opt.Erase) {
+                throw "app flash nao aceita --zero/--primeiro. Use rbesp flash --zero no OS."
+            }
             Write-Host "Isto substitui o OS no chip pelo app $slug." -ForegroundColor Yellow
             Invoke-AppMirrorBuild -Slug $slug -IdfArgs @('-p', (Resolve-RibanensePort $opt.Port), 'flash')
             break
@@ -501,10 +634,11 @@ switch ($t0) {
     { $_ -in @('list', 'ls', 'apps') } { Invoke-List }
     { $_ -in @('build', 'compilar') } { Invoke-OsMirrorBuild }
     { $_ -in @('ports', 'portas', 'com') } { Show-SerialPorts }
-    { $_ -in @('flash', 'gravar', 'primeiro') } {
+    { $_ -in @('flash', 'gravar', 'primeiro', 'zero', 'fabrica') } {
         $opt = Get-FlashOptions $rest
-        $erase = $opt.Erase -or ($t0 -eq 'primeiro')
-        Invoke-OsFlash -Port $opt.Port -Erase:$erase
+        $zero = $opt.Zero -or ($t0 -in @('zero', 'fabrica'))
+        $erase = $opt.Erase -or ($t0 -eq 'primeiro') -or $zero
+        Invoke-OsFlash -Port $opt.Port -Erase:$erase -Zero:$zero
     }
     'monitor' {
         $opt = Get-FlashOptions $rest
