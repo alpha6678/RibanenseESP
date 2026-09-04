@@ -12,6 +12,10 @@ if(NOT _rbn_version_json)
     message(FATAL_ERROR "version.json nao encontrado (OS ou copia no esp-sdk).")
 endif()
 
+# file(READ) nao cria dependencia: sem isto o CMake nao reconfigura quando a
+# versao muda e o build sai com o numero antigo dentro do header.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_rbn_version_json}")
+
 file(READ "${_rbn_version_json}" _rbn_vj)
 
 set(RIBANENSEESP_PRODUCT "RibanenseESP")
