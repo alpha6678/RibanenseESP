@@ -3,6 +3,7 @@
 #include "ribanense_esp_version.h"
 #include "storage.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -82,48 +83,89 @@ static bool parse_app_json(const char *json, store_app_t *app)
     return true;
 }
 
+static bool load_installed(const char *dir_abs, const char *name, store_app_t *app)
+{
+    if (name == NULL || name[0] == 0 || name[0] == '.' || app == NULL) {
+        return false;
+    }
+    memset(app, 0, sizeof(*app));
+    int n = snprintf(app->path, sizeof(app->path), "%s/%s", dir_abs, name);
+    if (n <= 0 || (size_t)n >= sizeof(app->path)) {
+        return false;
+    }
+    struct stat st;
+    if (stat(app->path, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        return false;
+    }
+    char man[180];
+    snprintf(man, sizeof(man), "%s/app.json", app->path);
+    char json[512];
+    if (read_text(man, json, sizeof(json)) < 0) {
+        return false;
+    }
+    if (!parse_app_json(json, app)) {
+        return false;
+    }
+    return stat(app->bin, &st) == 0;
+}
+
 int store_scan_installed(store_app_t *out, int max)
 {
     if (out == NULL || max <= 0 || !storage_ready()) {
         return 0;
     }
-    char dirs[STORE_MAX_APPS][64];
-    int nd = storage_list_dirs(STORAGE_APPS_DIR, dirs, STORE_MAX_APPS);
+    char path[160];
+    if (storage_abs(STORAGE_APPS_DIR, path, sizeof(path)) != ESP_OK) {
+        return 0;
+    }
+    DIR *d = opendir(path);
+    if (d == NULL) {
+        return 0;
+    }
     int n = 0;
-    char json[512];
-    for (int i = 0; i < nd && n < max; i++) {
-        store_app_t app = {0};
-        snprintf(app.path, sizeof(app.path), "%s/%s/%s", STORAGE_MOUNT, STORAGE_APPS_DIR, dirs[i]);
-        char man[160];
-        snprintf(man, sizeof(man), "%s/app.json", app.path);
-        if (read_text(man, json, sizeof(json)) < 0) {
-            continue;
-        }
-        if (!parse_app_json(json, &app)) {
-            continue;
-        }
-        struct stat st;
-        if (stat(app.bin, &st) != 0) {
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL && n < max) {
+        store_app_t app;
+        if (!load_installed(path, ent->d_name, &app)) {
             continue;
         }
         out[n++] = app;
     }
+    closedir(d);
     return n;
 }
 
 bool store_find_installed(const char *id, store_app_t *out)
 {
-    store_app_t list[STORE_MAX_APPS];
-    int n = store_scan_installed(list, STORE_MAX_APPS);
-    for (int i = 0; i < n; i++) {
-        if (strcmp(list[i].id, id) == 0) {
-            if (out != NULL) {
-                *out = list[i];
-            }
-            return true;
-        }
+    if (id == NULL || id[0] == 0 || !storage_ready()) {
+        return false;
     }
-    return false;
+    char path[160];
+    if (storage_abs(STORAGE_APPS_DIR, path, sizeof(path)) != ESP_OK) {
+        return false;
+    }
+    DIR *d = opendir(path);
+    if (d == NULL) {
+        return false;
+    }
+    bool found = false;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        store_app_t app;
+        if (!load_installed(path, ent->d_name, &app)) {
+            continue;
+        }
+        if (strcmp(app.id, id) != 0) {
+            continue;
+        }
+        if (out != NULL) {
+            *out = app;
+        }
+        found = true;
+        break;
+    }
+    closedir(d);
+    return found;
 }
 
 int store_catalog_copy(store_remote_t *out, int max)
@@ -144,7 +186,7 @@ int store_catalog_copy(store_remote_t *out, int max)
 #define HTTP_HOPS 8
 #define HTTP_RX_MAX 2048
 #define HTTP_TX_MAX 2048
-#define CATALOG_FILE_MAX 8192
+#define CATALOG_FILE_MAX 16384
 
 static bool http_is_redirect(int status)
 {

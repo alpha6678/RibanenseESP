@@ -3,7 +3,8 @@
 #include "esp_err.h"
 #include <stdbool.h>
 
-#define STORE_MAX_APPS 8
+/* Metadados na UI do OS (home/catalogo), nao pastas no cartao. */
+#define STORE_MAX_APPS 24
 #define STORE_ID_MAX   48
 #define STORE_NAME_MAX 32
 #define STORE_VER_MAX  16
