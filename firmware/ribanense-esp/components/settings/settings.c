@@ -2,6 +2,7 @@
 #include "board.h"
 #include "storage.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -57,6 +58,7 @@ static esp_err_t flush(void)
     }
     FILE *f = fopen(tmp, "w");
     if (f == NULL) {
+        ESP_LOGE(TAG, "fopen %s errno=%d %s", tmp, errno, strerror(errno));
         cJSON_free(txt);
         return ESP_FAIL;
     }
@@ -66,11 +68,13 @@ static esp_err_t flush(void)
     fclose(f);
     cJSON_free(txt);
     if (w != len) {
+        ESP_LOGE(TAG, "fwrite %s %u/%u", tmp, (unsigned)w, (unsigned)len);
         unlink(tmp);
         return ESP_FAIL;
     }
     unlink(dest);
     if (rename(tmp, dest) != 0) {
+        ESP_LOGE(TAG, "rename %s -> %s errno=%d %s", tmp, dest, errno, strerror(errno));
         unlink(tmp);
         return ESP_FAIL;
     }
