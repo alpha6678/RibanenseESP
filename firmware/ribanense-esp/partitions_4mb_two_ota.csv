@@ -1,0 +1,18 @@
+# Name,   Type, SubType, Offset,   Size,     Flags
+# Dois slots de OTA de 0x1F0000 (1,94 MB) ocupando os 4 MB inteiros.
+#
+# Antes eram 0x190000 cada, com 0xC0000 parados no fim da flash. Os 768 KiB
+# viraram folga dos slots: a imagem de hoje usa 70% do slot, contra 86% antes.
+#
+# Ja foi tentado por aqui um layout factory + ota_0, para ter uma copia que o
+# OTA nunca sobrescreve. Nao funciona: com um unico slot de OTA, uma placa que
+# boota de ota_0 nao tem para onde gravar a proxima imagem e esp_ota_begin()
+# devolve ESP_ERR_OTA_PARTITION_CONFLICT -- o OTA morre na segunda atualizacao.
+# Tres slots tambem nao cabem (3 x 1,41 MB passa dos 4,06 MB uteis).
+#
+# A copia de recuperacao vive no microSD, em os/recuperacao/, e nao na flash.
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+phy_init, data, phy,     0x10000,  0x1000,
+ota_0,    app,  ota_0,   0x20000,  0x1F0000,
+ota_1,    app,  ota_1,   0x210000, 0x1F0000,

@@ -65,6 +65,22 @@ ignorar o cabeçalho. O download do `.bin` não precisa disso: a URL leva a
 versão no nome, então cada versão é um recurso distinto.
 **Se acontecer** Espere os 5 minutos e tente de novo; não é falha de OTA.
 
+## 1e. Partição factory com um slot só de OTA mata a segunda atualização
+
+**Sintoma** `POST /update` responde 500 com corpo `begin` e a tela mostra
+`falha OTA`. O primeiro OTA depois da gravação por USB funciona; o seguinte
+nunca sai do lugar.
+**Causa** Layout `factory + ota_0`, pensado para ter uma cópia que o OTA nunca
+sobrescreve. `esp_ota_get_next_update_partition()` só considera partições
+`ota_N`, então rodando de `ota_0` ele devolve o próprio `ota_0`, e
+`esp_ota_begin()` recusa a partição em execução com
+`ESP_ERR_OTA_PARTITION_CONFLICT`. A fábrica nunca é destino de OTA.
+**Correção** Dois slots `ota_0` e `ota_1`. Três não cabem: 3 × 1,41 MB passa
+dos 4,06 MB úteis de uma flash de 4 MB.
+**Regra** Qualquer tabela nova precisa de **duas** partições `ota_N`. A cópia de
+recuperação vive no microSD, não na flash — e é melhor assim, porque uma
+fábrica velha na flash ainda dependeria do GitHub para voltar ao dia.
+
 ## 2. Versão antiga compilada dentro do binário
 
 **Sintoma** A placa recebe o OTA e continua se anunciando na versão anterior,

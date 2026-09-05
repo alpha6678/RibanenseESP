@@ -1366,6 +1366,23 @@ static void on_open_store(lv_event_t *e)
     show_store();
 }
 
+/* Grava no outro slot a imagem que estiver em os/recuperacao/ no cartao. E a
+ * saida para a placa que boota e nao consegue mais baixar nada: nao depende de
+ * rede, e a copia se repoe por um leitor de cartao no PC. */
+static void on_open_recover(lv_event_t *e)
+{
+    (void)e;
+    char ver[24];
+    if (ota_recover_scan(ver, sizeof(ver)) != ESP_OK) {
+        set_home_ota("sem copia no cartao", ui_color_red());
+        return;
+    }
+    char m[40];
+    snprintf(m, sizeof(m), "restaurando %s", ver);
+    set_home_ota(m, ui_color_white());
+    (void)ota_recover_start();
+}
+
 static void build_home(void)
 {
     /* Tela propria em vez de lv_screen_active(): a ativa neste ponto e o
@@ -1466,6 +1483,14 @@ static void build_settings(void)
     lv_label_set_text(s_home_upd_lab, LV_SYMBOL_REFRESH "  Atualizar");
     lv_obj_set_style_text_color(s_home_upd_lab, ui_color_white(), 0);
     label_left(s_home_upd_lab);
+
+    lv_obj_t *rec = lv_button_create(list);
+    style_row(rec);
+    lv_obj_add_event_cb(rec, on_open_recover, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *recl = lv_label_create(rec);
+    lv_label_set_text(recl, LV_SYMBOL_SD_CARD "  Restaurar do cartao");
+    lv_obj_set_style_text_color(recl, ui_color_white(), 0);
+    label_left(recl);
 }
 
 /* Luz de fundo do splash. O brilho do usuario esta em os/settings.json, que

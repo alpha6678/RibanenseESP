@@ -1,6 +1,7 @@
 #include "ota.h"
 #include "board.h"
 #include "net.h"
+#include "storage.h"
 #include "ribanense_esp_version.h"
 #include "ribanense_ota_pubkey.h"
 
@@ -14,6 +15,7 @@
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
+#include "esp_image_format.h"
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -911,6 +913,337 @@ static void rehearse_task(void *arg)
     vTaskDelete(NULL);
 }
 
+/* ---------- Recuperacao pelo microSD ----------
+ *
+ * Guardar uma copia de recuperacao na flash sairia caro (1,94 MB) e resolveria
+ * pouco: sendo uma imagem antiga, ela ainda dependeria do GitHub para voltar ao
+ * dia -- inutil justamente quando o problema e a rede. No cartao a copia nao
+ * custa flash, pode ser a versao que o dono quiser e se repoe por um leitor de
+ * cartao no PC, sem cabo nem esptool.
+ *
+ * O par esperado em os/recuperacao/ e o mesmo que o publish gera: o manifesto
+ * assinado e o .bin que ele aponta. Assim a validacao aqui e a mesma do OTA
+ * pela rede -- produto, assinatura Ed25519 e sha256 -- e nao ha formato novo
+ * para manter. */
+
+/* Nome do arquivo dentro da url do manifesto. */
+static const char *url_basename(const char *url)
+{
+    const char *bar = strrchr(url, '/');
+    return (bar != NULL && bar[1] != 0) ? bar + 1 : NULL;
+}
+
+esp_err_t ota_recover_scan(char *ver_out, size_t ver_max)
+{
+    if (ver_out != NULL && ver_max > 0) {
+        ver_out[0] = 0;
+    }
+    if (!storage_ready()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char *json = malloc(2048);
+    if (json == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    esp_err_t err = storage_read_text(OTA_RECOVER_MANIFEST, json, 2048);
+    if (err != ESP_OK || json[0] == 0) {
+        free(json);
+        return ESP_ERR_NOT_FOUND;
+    }
+    cJSON *root = cJSON_Parse(json);
+    free(json);
+    if (root == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const cJSON *p = cJSON_GetObjectItem(root, "product");
+    const cJSON *v = cJSON_GetObjectItem(root, "version");
+    err = ESP_ERR_INVALID_ARG;
+    if (cJSON_IsString(p) && strcmp(p->valuestring, RIBANENSEESP_PRODUCT) == 0 &&
+        cJSON_IsString(v) && v->valuestring[0] != 0) {
+        if (ver_out != NULL && ver_max > 0) {
+            strncpy(ver_out, v->valuestring, ver_max - 1);
+            ver_out[ver_max - 1] = 0;
+        }
+        err = ESP_OK;
+    }
+    cJSON_Delete(root);
+    return err;
+}
+
+/* Copia a imagem em execucao e o manifesto dela para o cartao.
+ *
+ * So faz sentido depois que a imagem se provou boa, e e ai que e chamada: o que
+ * fica guardado no cartao e uma versao que comprovadamente boota e alcanca o
+ * GitHub. O tamanho vem de esp_image_get_metadata() -- copiar a particao
+ * inteira gravaria 1,94 MB, e os bytes depois do fim da imagem fariam o sha256
+ * nunca bater com o do manifesto. */
+static esp_err_t recover_save(void)
+{
+    if (!storage_ready()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const esp_partition_t *run = esp_ota_get_running_partition();
+    if (run == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    esp_partition_pos_t pos = { .offset = run->address, .size = run->size };
+    esp_image_metadata_t meta;
+    if (esp_image_get_metadata(&pos, &meta) != ESP_OK || meta.image_len == 0 ||
+        meta.image_len > run->size) {
+        ESP_LOGW(TAG, "nao consegui medir a imagem em %s", run->label);
+        return ESP_FAIL;
+    }
+
+    char *json = malloc(2048);
+    if (json == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    int n = 0;
+    if (http_get_text(RIBANENSEESP_MANIFEST_URL, json, 2048, &n) != ESP_OK) {
+        free(json);
+        return ESP_FAIL;
+    }
+    cJSON *root = cJSON_Parse(json);
+    if (root == NULL) {
+        free(json);
+        return ESP_ERR_INVALID_ARG;
+    }
+    const cJSON *jv = cJSON_GetObjectItem(root, "version");
+    const cJSON *ju = cJSON_GetObjectItem(root, "url");
+    const char *vv = cJSON_IsString(jv) ? jv->valuestring : "";
+    const char *uv = cJSON_IsString(ju) ? ju->valuestring : "";
+    const char *nome = url_basename(uv);
+
+    /* O manifesto precisa descrever esta imagem, nao outra: se ja saiu release
+     * novo, o par ficaria incoerente e a restauracao falharia no sha256. */
+    if (strcmp(vv, RIBANENSEESP_VERSION) != 0 || nome == NULL) {
+        ESP_LOGI(TAG, "manifesto anuncia %s, rodando %s: copia adiada",
+                 vv[0] ? vv : "?", RIBANENSEESP_VERSION);
+        cJSON_Delete(root);
+        free(json);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char rel[160];
+    char abs[192];
+    char tmp[200];
+    esp_err_t err = ESP_FAIL;
+    (void)storage_mkdir(STORAGE_OS_DIR);
+    (void)storage_mkdir(OTA_RECOVER_DIR);
+    if (snprintf(rel, sizeof(rel), "%s/%s", OTA_RECOVER_DIR, nome) < (int)sizeof(rel) &&
+        storage_abs(rel, abs, sizeof(abs)) == ESP_OK &&
+        snprintf(tmp, sizeof(tmp), "%s.t", abs) < (int)sizeof(tmp)) {
+        FILE *f = fopen(tmp, "wb");
+        if (f != NULL) {
+            uint32_t left = meta.image_len;
+            uint32_t off = 0;
+            err = ESP_OK;
+            while (left > 0) {
+                uint32_t want = left > CHUNK ? CHUNK : left;
+                if (esp_partition_read(run, off, s_chunk, want) != ESP_OK ||
+                    fwrite(s_chunk, 1, want, f) != want) {
+                    err = ESP_FAIL;
+                    break;
+                }
+                off += want;
+                left -= want;
+            }
+            fclose(f);
+            if (err == ESP_OK) {
+                unlink(abs);
+                err = (rename(tmp, abs) == 0) ? ESP_OK : ESP_FAIL;
+            }
+            if (err != ESP_OK) {
+                unlink(tmp);
+            }
+        }
+    }
+
+    if (err == ESP_OK) {
+        err = storage_write_text(OTA_RECOVER_MANIFEST, json);
+    }
+    cJSON_Delete(root);
+    free(json);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "copia de recuperacao %s no cartao (%u B)", vv,
+                 (unsigned)meta.image_len);
+    } else {
+        ESP_LOGW(TAG, "copia de recuperacao falhou: %s", esp_err_to_name(err));
+    }
+    return err;
+}
+
+static void recover_save_task(void *arg)
+{
+    (void)arg;
+    (void)recover_save();
+    s_pull_busy = false;
+    vTaskDelete(NULL);
+}
+
+static void recover_task(void *arg)
+{
+    (void)arg;
+    char *json = NULL;
+    cJSON *root = NULL;
+    FILE *f = NULL;
+    esp_ota_handle_t h = 0;
+    bool open = false;
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+
+    if (!storage_ready()) {
+        set_state(OTA_ERR, "sem cartao");
+        goto fim;
+    }
+    json = malloc(2048);
+    if (json == NULL) {
+        set_state(OTA_ERR, "sem RAM");
+        goto fim;
+    }
+    set_state(OTA_CHECKING, "lendo cartao...");
+    if (storage_read_text(OTA_RECOVER_MANIFEST, json, 2048) != ESP_OK || json[0] == 0) {
+        set_state(OTA_ERR, "sem recuperacao");
+        goto fim;
+    }
+    root = cJSON_Parse(json);
+    if (root == NULL) {
+        set_state(OTA_ERR, "manifesto invalido");
+        goto fim;
+    }
+
+    const cJSON *jp = cJSON_GetObjectItem(root, "product");
+    const cJSON *jv = cJSON_GetObjectItem(root, "version");
+    const cJSON *ju = cJSON_GetObjectItem(root, "url");
+    const cJSON *js = cJSON_GetObjectItem(root, "sha256");
+    const cJSON *jg = cJSON_GetObjectItem(root, "sig");
+    const char *pv = cJSON_IsString(jp) ? jp->valuestring : "";
+    const char *vv = cJSON_IsString(jv) ? jv->valuestring : "";
+    const char *uv = cJSON_IsString(ju) ? ju->valuestring : "";
+    const char *sv = cJSON_IsString(js) ? js->valuestring : "";
+    const char *gv = cJSON_IsString(jg) ? jg->valuestring : "";
+
+    if (strcmp(pv, RIBANENSEESP_PRODUCT) != 0) {
+        set_state(OTA_ERR, "produto diferente");
+        goto fim;
+    }
+    /* Mesma assinatura do OTA pela rede: um .bin qualquer largado no cartao
+     * nao vira codigo rodando na placa. */
+    if (!sig_ok(pv, vv, sv, gv)) {
+        set_state(OTA_ERR, "assinatura");
+        goto fim;
+    }
+    const char *nome = url_basename(uv);
+    if (nome == NULL) {
+        set_state(OTA_ERR, "sem binario");
+        goto fim;
+    }
+
+    char rel[160];
+    char abs[192];
+    if (snprintf(rel, sizeof(rel), "%s/%s", OTA_RECOVER_DIR, nome) >= (int)sizeof(rel) ||
+        storage_abs(rel, abs, sizeof(abs)) != ESP_OK) {
+        set_state(OTA_ERR, "caminho longo");
+        goto fim;
+    }
+    f = fopen(abs, "rb");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "ausente: %s", abs);
+        set_state(OTA_ERR, "bin ausente");
+        goto fim;
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        set_state(OTA_ERR, "falha ao ler");
+        goto fim;
+    }
+    long sz = ftell(f);
+    rewind(f);
+
+    const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
+    if (part == NULL) {
+        set_state(OTA_ERR, "sem slot");
+        goto fim;
+    }
+    if (sz <= 0 || (size_t)sz > part->size) {
+        set_state(OTA_ERR, "bin grande");
+        goto fim;
+    }
+
+    char m[MSG_MAX];
+    snprintf(m, sizeof(m), "restaurando %s", vv);
+    set_state(OTA_DOWNLOADING, m);
+    if (esp_ota_begin(part, (size_t)sz, &h) != ESP_OK) {
+        set_state(OTA_ERR, "falha OTA");
+        goto fim;
+    }
+    open = true;
+    mbedtls_sha256_starts(&sha, 0);
+
+    long left = sz;
+    while (left > 0) {
+        size_t want = left > CHUNK ? CHUNK : (size_t)left;
+        size_t n = fread(s_chunk, 1, want, f);
+        if (n == 0) {
+            set_state(OTA_ERR, "falha ao ler");
+            goto fim;
+        }
+        if (write_stream(h, &sha, s_chunk, (int)n, false) != ESP_OK) {
+            set_state(OTA_ERR, "falha ao gravar");
+            goto fim;
+        }
+        left -= (long)n;
+        if (((sz - left) & 0xffff) < (long)n) {
+            snprintf(m, sizeof(m), "restaurando %ldk", (sz - left) / 1024);
+            set_state(OTA_DOWNLOADING, m);
+        }
+    }
+    fclose(f);
+    f = NULL;
+
+    /* finish_ota confere o sha256 e so entao troca o slot de boot: um arquivo
+     * truncado no cartao para aqui, com o slot atual intacto. */
+    if (finish_ota(h, part, &sha, sv) != ESP_OK) {
+        open = false;
+        set_state(OTA_ERR, "sha nao bate");
+        goto fim;
+    }
+    open = false;
+    snprintf(m, sizeof(m), "restaurado %s", vv);
+    set_state(OTA_OK_REBOOT, m);
+    ESP_LOGI(TAG, "recuperacao %s -> %s", vv, part->label);
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    esp_restart();
+
+fim:
+    if (open) {
+        (void)esp_ota_abort(h);
+    }
+    if (f != NULL) {
+        fclose(f);
+    }
+    if (root != NULL) {
+        cJSON_Delete(root);
+    }
+    mbedtls_sha256_free(&sha);
+    s_pull_busy = false;
+    vTaskDelete(NULL);
+}
+
+esp_err_t ota_recover_start(void)
+{
+    if (s_pull_busy) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_pull_busy = true;
+    if (xTaskCreate(recover_task, "ota_recup", OTA_TASK_STACK, NULL, 4, NULL) != pdPASS) {
+        s_pull_busy = false;
+        set_state(OTA_ERR, "sem tarefa");
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
 esp_err_t ota_apply_file(const char *abs_path)
 {
     if (abs_path == NULL || abs_path[0] == 0) {
@@ -1025,6 +1358,14 @@ void ota_health_tick(void)
             ESP_LOGI(TAG, "imagem confirmada: manifesto lido em %llds", up / 1000000);
         }
         decided = true;
+        /* Recem-promovida a boa conhecida: vira a copia do cartao, para haver
+         * uma saida se a proxima versao quebrar. */
+        if (!s_pull_busy && storage_ready()) {
+            s_pull_busy = true;
+            if (xTaskCreate(recover_save_task, "ota_copia", OTA_TASK_STACK, NULL, 3, NULL) != pdPASS) {
+                s_pull_busy = false;
+            }
+        }
         return;
     }
 
