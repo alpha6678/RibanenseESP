@@ -36,8 +36,9 @@ CLI deste repositório (firmware RibanenseESP). Não há solution .NET aqui.
 | `release os\|<Slug> <semver>` | `os release` | Tag + `gh release` + manifesto assinado. |
 | `keygen` | — | Gera ECDSA P-256 em `secrets/` e o header da pubkey. |
 | `sign` / `verify` | — | Assina / verifica `firmware.json`. |
+| `ota check [ip]` | `ota`, `conferir` | Refaz o OTA em terra: manifesto publicado, assinatura, SHA256, versão dentro do binário e (com IP) `heap`/`blk` da placa. |
 | `logs <ip>` | `log` | `GET http://<ip>/log`. |
-| `clean` | `limpar` | Remove `artifacts/`. |
+| `clean [espelho]` | `limpar` | Remove `artifacts/`; com `espelho`, apaga também os `build/` de `C:\fw`. |
 | `install [user\|session]` | `setup` | Shim no PATH. |
 
 ```bat
@@ -85,7 +86,13 @@ só depois desta imagem USB (URLs `alpha6678/RibanenseESP` + pubkey).
 
 Fonte única do OS: [`firmware/ribanense-esp/version.json`](../firmware/ribanense-esp/version.json)
 (produto, SemVer, owner, repo, `lanSeed`). O header `ribanense_esp_version.h`
-é gerado no build (CMake `configure_file`).
+é gerado no build (CMake `configure_file`) e o mesmo número vai para o
+`PROJECT_VER`, ou seja, para o `app_desc` gravado no `.bin`.
+
+O `publish` **barra** o pacote se o binário não se identificar com a versão
+pedida (`Assert-BuiltVersion`): compara o header gerado e o `app_desc` com o
+número do pacote. Isso pega CMake que não reconfigurou — o defeito que já
+publicou um "0.3.6" com `0.3.5` dentro.
 
 OTA: o manifesto `firmware.json` leva `url`, `sha256` e `sig` (ECDSA P-256
 sobre `produto|versao|sha256`). A chave privada fica em

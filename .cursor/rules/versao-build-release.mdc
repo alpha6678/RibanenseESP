@@ -27,6 +27,44 @@ Corrigido em `firmware/esp-sdk/components/board/CMakeLists.txt`:
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_rbn_version_json}")
 ```
 
+## A guarda que impede a reincidência
+
+`PROJECT_VER` sai do mesmo `version.json`, então o número vai parar no
+`esp_app_desc_t` gravado no binário — antes disso o IDF caía no `git describe`,
+não achava `.git` no espelho `C:\fw` e gravava `"1"`.
+
+`Assert-BuiltVersion` (em `ferramentas/esp-idf-env.ps1`) roda no `publish` do
+OS e dos apps, e aborta se o header gerado ou o `app_desc` não baterem com a
+versão do pacote. Layout lido no `.bin`:
+
+| Offset | Campo |
+|--------|-------|
+| `0x00` | `esp_image_header_t` (24 B) |
+| `0x18` | `esp_image_segment_header_t` (8 B) |
+| `0x20` | `app_desc.magic_word` = `0xABCD5432` |
+| `0x30` | `app_desc.version` (32 B, ASCIIZ) |
+| `0x50` | `app_desc.project_name` (32 B) |
+| `0x90` | `app_desc.idf_ver` (32 B) |
+
+Em PowerShell, compare o magic com `0xABCD5432L`: sem o `L` o literal vira
+`Int32` negativo e a checagem nunca casa.
+
+### Declare o CONFIGURE_DEPENDS em um lugar só
+
+O CMake emite os arquivos de `CMAKE_CONFIGURE_DEPENDS` como saída de uma regra
+`phony` no `build.ninja`. O mesmo caminho declarado em dois escopos (por
+exemplo no projeto do OS **e** no componente `board`) vira saída duplicada:
+
+```
+ninja: error: build.ninja:24575: multiple rules generate C:/fw/ribanense-esp/version.json
+```
+
+O `build.ninja` quebrado não consegue nem se regerar — o ninja falha ao lê-lo
+antes de o CMake rodar. A saída é `rbesp clean espelho` e compilar do zero.
+Por isso a declaração mora só em `board/CMakeLists.txt`, que resolve o
+`version.json` tanto para o OS quanto para os apps; o projeto do OS apenas lê
+o arquivo para o `PROJECT_VER`.
+
 ## Regras
 
 - Só o `version.json` manda na versão do OS. Nunca editar o header à mão.
@@ -41,12 +79,17 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_rbn_version_j
 - Republicar a mesma versão (asset trocado) exige mover a tag para o commit
   que gerou o binário, senão a tag aponta para um código que não é aquele.
 
+- A placa valida a assinatura com a pubkey **compilada no firmware**
+  (`ribanense_ota_pubkey.h`), não com a de `secrets/`. Trocar a chave sem
+  regerar o header derruba todo OTA em `assinatura`. `rbesp doctor` compara.
+
 ## Antes de publicar
 
 ```bat
 rbesp doctor
-rbesp verify
+rbesp ota check
 ```
 
-E confirme que o SHA256 do que está no GitHub bate com o do manifesto — foi
-assim que validamos a 0.3.6 republicada.
+`ota check` baixa o manifesto e o binário publicados, confere assinatura,
+SHA256 e a versão dentro do `app_desc`, e com um IP ainda lê o `/status` da
+placa. É o que separa "publiquei" de "a placa consegue atualizar".

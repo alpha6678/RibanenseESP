@@ -57,6 +57,7 @@ if (-not (Test-Path -LiteralPath $built)) {
 $binName = "ribanense-esp-$Version.bin"
 $binPath = Join-Path $OutputDir $binName
 Copy-Item -LiteralPath $built -Destination $binPath -Force
+$null = Assert-BuiltVersion -BinPath $binPath -Version $Version -OsMirror $osMirror
 $hash = Write-Sha256Sidecar -FilePath $binPath
 
 $fwJson = Join-Path $osSrc 'firmware.json'

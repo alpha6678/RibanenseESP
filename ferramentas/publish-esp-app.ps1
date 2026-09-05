@@ -73,6 +73,7 @@ if (-not $built) {
 
 $appBin = Join-Path $OutputDir 'app.bin'
 Copy-Item -LiteralPath $built -Destination $appBin -Force
+$null = Assert-BuiltVersion -BinPath $appBin -Version $Version
 Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $OutputDir 'app.json') -Force
 
 $zipName = "esp-$slug-$Version.zip"

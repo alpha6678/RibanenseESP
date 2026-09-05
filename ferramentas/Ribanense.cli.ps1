@@ -42,8 +42,10 @@ Comandos:
   keygen                       Gera chave ECDSA P-256 em secrets/
   sign                         Assina firmware.json com o SHA atual
   verify                       Verifica a assinatura de firmware.json
+  ota check [ip]               Refaz o OTA em terra: manifesto, assinatura,
+                               SHA256 e versao dentro do binario publicado
   logs [ip]                    GET /log da placa na LAN
-  clean                        Remove artifacts/
+  clean [espelho]              Remove artifacts/ (e o build do espelho C:\fw)
   install [user|session]       Shim rbesp/rb no PATH
 
 Primeiro USB (placa nova ou recuperacao):
@@ -363,6 +365,12 @@ function Invoke-Doctor {
     Note (Test-Path -LiteralPath $key) "Chave de assinatura $key"
     $ossl = Get-OpenSslPath
     Note ([bool] $ossl) "openssl ($ossl)"
+    $pubMatch = Test-OtaPubkeyMatch -ProjectRoot $ProjectRoot
+    if ($null -eq $pubMatch) {
+        Write-Host "[..] Sem pubkey em secrets/ para comparar com o header do firmware." -ForegroundColor Yellow
+    } else {
+        Note $pubMatch "Pubkey do firmware casa com secrets/ (senao todo OTA morre em 'assinatura')"
+    }
     $info = Get-OsVersionInfo -ProjectRoot $ProjectRoot
     Write-Host "[..] version.json $($info.version) $($info.githubOwner)/$($info.githubRepo)" -ForegroundColor Cyan
     $fw = Get-Content -LiteralPath (Join-Path $ProjectRoot 'firmware\ribanense-esp\firmware.json') -Raw
@@ -540,6 +548,104 @@ function Invoke-VerifyManifest {
     }
 }
 
+function Get-SemverKey {
+    param([string] $Version)
+    if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)') { return $null }
+    return '{0:D6}.{1:D6}.{2:D6}' -f [int]$Matches[1], [int]$Matches[2], [int]$Matches[3]
+}
+
+<#
+.SYNOPSIS
+  Refaz em terra o que a placa faz no OTA, antes de depender do hardware.
+#>
+function Invoke-OtaCheck {
+    param([string] $Ip)
+    $script:otaOk = $true
+    function Note([bool] $Good, [string] $Msg) {
+        if ($Good) { Write-Host "[OK] $Msg" -ForegroundColor Green }
+        else { Write-Host "[!!] $Msg" -ForegroundColor Yellow; $script:otaOk = $false }
+    }
+
+    $info = Get-OsVersionInfo -ProjectRoot $ProjectRoot
+    $gh = Get-GithubOwnerRepo -ProjectRoot $ProjectRoot
+    Write-Host "Conferindo o OTA de $($gh.Owner)/$($gh.Repo) (os mesmos passos da placa)." -ForegroundColor Cyan
+
+    $match = Test-OtaPubkeyMatch -ProjectRoot $ProjectRoot
+    if ($null -eq $match) {
+        Write-Host "[..] Sem secrets/ribanense-ota.pub.pem para comparar com o header." -ForegroundColor Yellow
+    } else {
+        Note $match "Pubkey do firmware igual a de secrets/ (a placa valida com a do firmware)"
+    }
+
+    $manUrl = "https://raw.githubusercontent.com/$($gh.Owner)/$($gh.Repo)/main/firmware/ribanense-esp/firmware.json"
+    $raw = $null
+    try {
+        $raw = (Invoke-WebRequest -Uri $manUrl -UseBasicParsing -TimeoutSec 30).Content
+    } catch {
+        throw "Nao consegui baixar o manifesto publicado ($manUrl): $($_.Exception.Message)"
+    }
+    $man = $raw | ConvertFrom-Json
+    Write-Host "Publicado: $($man.product) $($man.version)"
+    Note ([string] $man.product -eq [string] $info.product) "product bate com version.json ($($info.product))"
+
+    $canon = Get-OtaCanonical -Product $man.product -Version $man.version -Sha256 $man.sha256
+    $sigOk = $false
+    try { $sigOk = Invoke-OtaVerifyCanonical -ProjectRoot $ProjectRoot -Canonical $canon -SigHex ([string] $man.sig) } catch { }
+    Note $sigOk "Assinatura do manifesto publicado"
+
+    $mirror = Get-IdfMirrorRoot
+    New-Item -ItemType Directory -Path $mirror -Force | Out-Null
+    $tmp = Join-Path $mirror 'rbesp-ota-check.bin'
+    try {
+        Invoke-WebRequest -Uri ([string] $man.url) -UseBasicParsing -TimeoutSec 300 -OutFile $tmp
+    } catch {
+        throw "Nao consegui baixar o binario publicado ($($man.url)): $($_.Exception.Message)"
+    }
+    $hash = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
+    Note ($hash -eq [string] $man.sha256) "SHA256 do binario publicado bate com o manifesto"
+    $desc = $null
+    try { $desc = Get-EspAppDesc -BinPath $tmp } catch { }
+    if ($desc) {
+        Note ($desc.Version -eq [string] $man.version) "O binario publicado se identifica como '$($desc.Version)' (compilado em $($desc.Built), IDF $($desc.IdfVer))"
+    } else {
+        Note $false "Nao consegui ler o app_desc do binario publicado"
+    }
+    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+
+    $localKey = Get-SemverKey ([string] $info.version)
+    $manKey = Get-SemverKey ([string] $man.version)
+    if ($localKey -and $manKey) {
+        if ($manKey -eq $localKey) {
+            Write-Host "[..] version.json local ($($info.version)) e a publicada sao a mesma: nada a baixar." -ForegroundColor Cyan
+        } elseif ($manKey -lt $localKey) {
+            Write-Host "[..] version.json local ($($info.version)) esta a frente da publicada ($($man.version)): falta publicar." -ForegroundColor Cyan
+        }
+    }
+
+    if ($Ip) {
+        $st = $null
+        try {
+            $st = (Invoke-WebRequest -Uri "http://$Ip/status" -UseBasicParsing -TimeoutSec 20).Content | ConvertFrom-Json
+        } catch {
+            Note $false "GET http://$Ip/status ($($_.Exception.Message))"
+        }
+        if ($st) {
+            Write-Host "Placa ${Ip}: $($st.product) $($st.version)  heap=$($st.heap) blk=$($st.blk)"
+            $boardKey = Get-SemverKey ([string] $st.version)
+            if ($boardKey -and $manKey) {
+                Note ($manKey -gt $boardKey) "A placa ($($st.version)) enxerga a publicada ($($man.version)) como mais nova"
+            }
+            Note ([int] $st.blk -gt 20000) "Maior bloco livre em repouso: $($st.blk) (o record TLS do GitHub pede 16749 durante o download)"
+        }
+    }
+
+    if ($script:otaOk) {
+        Write-Host "`nOTA conferido." -ForegroundColor Green
+    } else {
+        throw "OTA com pendencias; nao conte com a atualizacao pelo GitHub."
+    }
+}
+
 function Invoke-BoardLogs {
     param([string] $Ip)
     if (-not $Ip) {
@@ -551,6 +657,7 @@ function Invoke-BoardLogs {
 }
 
 function Invoke-Clean {
+    param([switch] $Mirror)
     $art = Join-Path $ProjectRoot 'artifacts'
     if (Test-Path -LiteralPath $art) {
         Remove-Item -LiteralPath $art -Recurse -Force
@@ -558,6 +665,22 @@ function Invoke-Clean {
     } else {
         Write-Host "Nada em artifacts/"
     }
+    if (-not $Mirror) { return }
+    # Build corrompido do ninja so sai assim: ele nao consegue nem se regerar.
+    $mirror = Get-IdfMirrorRoot
+    $builds = @(Join-Path $mirror 'ribanense-esp\build')
+    $appsDir = Join-Path $mirror 'apps'
+    if (Test-Path -LiteralPath $appsDir) {
+        $builds += @(Get-ChildItem -LiteralPath $appsDir -Directory -ErrorAction SilentlyContinue |
+            ForEach-Object { Join-Path $_.FullName 'build' })
+    }
+    foreach ($b in $builds) {
+        if (Test-Path -LiteralPath $b) {
+            Remove-Item -LiteralPath $b -Recurse -Force
+            Write-Host "Removido $b"
+        }
+    }
+    Write-Host "Proximo build do espelho sera do zero (alguns minutos)." -ForegroundColor Yellow
 }
 
 function Invoke-Install {
@@ -681,8 +804,15 @@ switch ($t0) {
     'keygen' { Invoke-Keygen }
     'sign' { Invoke-SignManifest }
     'verify' { Invoke-VerifyManifest }
+    'ota' {
+        $ip = @($rest | Where-Object { $_ -notin @('check', 'conferir') })[0]
+        Invoke-OtaCheck -Ip $ip
+    }
     { $_ -in @('logs', 'log') } { Invoke-BoardLogs -Ip $rest[0] }
-    { $_ -in @('clean', 'limpar') } { Invoke-Clean }
+    { $_ -in @('clean', 'limpar') } {
+        $wipe = @($rest | Where-Object { $_ -match '^-{0,2}(espelho|mirror)$' }).Count -gt 0
+        Invoke-Clean -Mirror:$wipe
+    }
     { $_ -in @('install', 'setup') } { Invoke-Install -Scope $rest[0] }
     default { throw "Comando desconhecido: $($tokens[0]). Use rbesp help." }
 }

@@ -30,8 +30,11 @@ ou o asset publicado tem outro número no header.
 **Causa** `file(READ version.json)` no CMake não cria dependência de
 configure; sem reconfigurar, `ribanense_esp_version.h` fica com o valor velho
 e o ninja só recompila o que mudou.
-**Correção** `CMAKE_CONFIGURE_DEPENDS` no `board/CMakeLists.txt`. Antes de
-publicar, confirme `-- Configuring done` no build ou leia o header gerado.
+**Correção** `CMAKE_CONFIGURE_DEPENDS` no `board/CMakeLists.txt` — em **um só**
+escopo, senão o ninja acusa `multiple rules generate .../version.json` e o
+`build.ninja` quebrado não se regera (saída: `rbesp clean espelho`).
+O `PROJECT_VER` leva a versão para o `app_desc` e o `publish` recusa binário
+que não se identifique com a versão do pacote. Confira com `rbesp ota check`.
 Detalhe: `.cursor/rules/versao-build-release.mdc`
 
 ## 3. Saída de processo vira retorno de função no PowerShell

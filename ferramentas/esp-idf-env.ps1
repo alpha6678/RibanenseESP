@@ -81,6 +81,116 @@ function Invoke-IdfBuild {
     }
 }
 
+function Read-AsciiZ {
+    param([Parameter(Mandatory)] [byte[]] $Bytes, [int] $Offset, [int] $Max)
+    $s = [System.Text.Encoding]::ASCII.GetString($Bytes, $Offset, $Max)
+    $z = $s.IndexOf([char]0)
+    if ($z -ge 0) { $s = $s.Substring(0, $z) }
+    return $s.Trim()
+}
+
+<#
+.SYNOPSIS
+  Le o esp_app_desc_t gravado no .bin (versao, projeto, IDF).
+.DESCRIPTION
+  Layout do IDF: esp_image_header_t (24 B) + esp_image_segment_header_t (8 B),
+  entao o app_desc comeca em 0x20. Dentro dele: magic 0xABCD5432 em +0,
+  version em +16, project_name em +48, idf_ver em +112.
+#>
+function Get-EspAppDesc {
+    param([Parameter(Mandatory)] [string] $BinPath)
+    if (-not (Test-Path -LiteralPath $BinPath)) {
+        throw "Binario nao encontrado: $BinPath"
+    }
+    $head = New-Object byte[] 176
+    $fs = [System.IO.File]::OpenRead($BinPath)
+    try {
+        $read = $fs.Read($head, 0, $head.Length)
+    } finally {
+        $fs.Dispose()
+    }
+    if ($read -lt $head.Length) {
+        throw "Binario curto demais para conter app_desc: $BinPath"
+    }
+    # 0xABCD5432L: sem o L o PowerShell le o literal como Int32 negativo.
+    if ([BitConverter]::ToUInt32($head, 32) -ne 0xABCD5432L) {
+        throw "app_desc nao encontrado em $BinPath (magic diferente de 0xABCD5432)."
+    }
+    return [pscustomobject]@{
+        Version = (Read-AsciiZ -Bytes $head -Offset 48 -Max 32)
+        Project = (Read-AsciiZ -Bytes $head -Offset 80 -Max 32)
+        Built   = ((Read-AsciiZ -Bytes $head -Offset 128 -Max 16) + ' ' + (Read-AsciiZ -Bytes $head -Offset 112 -Max 16))
+        IdfVer  = (Read-AsciiZ -Bytes $head -Offset 144 -Max 32)
+    }
+}
+
+function Get-GeneratedOsVersion {
+    param([Parameter(Mandatory)] [string] $OsMirror)
+    $h = Join-Path $OsMirror 'build\esp-idf\board\generated\ribanense_esp_version.h'
+    if (-not (Test-Path -LiteralPath $h)) { return $null }
+    $raw = Get-Content -LiteralPath $h -Raw
+    if ($raw -match '#define\s+RIBANENSEESP_VERSION\s+"([^"]+)"') { return $Matches[1] }
+    return $null
+}
+
+<#
+.SYNOPSIS
+  Barra pacote cuja versao nao bate com o que foi compilado.
+.DESCRIPTION
+  O numero que a placa anuncia vem do header gerado no configure do CMake, e o
+  do app_desc vem do PROJECT_VER no mesmo configure. Se o CMake nao
+  reconfigurou, os dois ficam velhos e o OTA entra em laco: a placa baixa,
+  reinicia e continua se dizendo na versao anterior.
+#>
+function Assert-BuiltVersion {
+    param(
+        [Parameter(Mandatory)] [string] $BinPath,
+        [Parameter(Mandatory)] [string] $Version,
+        [string] $OsMirror
+    )
+    if ($OsMirror) {
+        $header = Get-GeneratedOsVersion -OsMirror $OsMirror
+        if ($header -and $header -ne $Version) {
+            throw "ribanense_esp_version.h diz $header e o pacote seria $Version. O CMake nao reconfigurou: apague $OsMirror\build e compile de novo."
+        }
+    }
+    $desc = Get-EspAppDesc -BinPath $BinPath
+    if ($desc.Version -ne $Version) {
+        throw "O binario se identifica como '$($desc.Version)' e o pacote seria $Version. Nao publique: depois do OTA a placa anunciaria a versao errada e baixaria em laco."
+    }
+    Write-Host "Versao conferida dentro do binario: $($desc.Version) ($($desc.Project), IDF $($desc.IdfVer))" -ForegroundColor Green
+    return $desc
+}
+
+function Get-OtaPubkeyFromHeader {
+    param([Parameter(Mandatory)] [string] $ProjectRoot)
+    $h = Join-Path $ProjectRoot 'firmware\esp-sdk\components\board\include\ribanense_ota_pubkey.h'
+    if (-not (Test-Path -LiteralPath $h)) { return $null }
+    $raw = Get-Content -LiteralPath $h -Raw
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($m in [regex]::Matches($raw, '"([^"]*)\\n"')) {
+        [void]$sb.AppendLine($m.Groups[1].Value)
+    }
+    $txt = $sb.ToString()
+    if ($txt -notmatch 'BEGIN PUBLIC KEY') { return $null }
+    return $txt
+}
+
+<#
+.SYNOPSIS
+  A placa valida o OTA com a pubkey compilada no firmware, nao com a de
+  secrets/. Se as duas divergirem, todo update morre em "assinatura".
+#>
+function Test-OtaPubkeyMatch {
+    param([Parameter(Mandatory)] [string] $ProjectRoot)
+    $pub = Join-Path $ProjectRoot 'secrets\ribanense-ota.pub.pem'
+    if (-not (Test-Path -LiteralPath $pub)) { return $null }
+    $fromHeader = Get-OtaPubkeyFromHeader -ProjectRoot $ProjectRoot
+    if (-not $fromHeader) { return $null }
+    $norm = { param($t) ($t -replace '\s', '') }
+    return ((& $norm (Get-Content -LiteralPath $pub -Raw)) -eq (& $norm $fromHeader))
+}
+
 function Get-RibanenseSerialPorts {
     $list = @()
     $devs = @()

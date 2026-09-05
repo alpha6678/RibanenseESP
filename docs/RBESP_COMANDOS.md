@@ -195,9 +195,20 @@ e chama o release. `release` cria tag, GitHub Release e atualiza
 rbesp keygen
 rbesp sign
 rbesp verify
+
+rbesp ota check
+rbesp ota check 192.168.5.188
+rbesp ota conferir
 ```
 
 `keygen` recusa se `secrets/ribanense-ota.pem` já existir.
+
+`verify` confere a assinatura do `firmware.json` **local**. `ota check` faz o
+que a placa faz: baixa o manifesto publicado, confere a assinatura, baixa o
+`.bin`, compara o SHA256 e lê a versão **de dentro** do binário (`app_desc`).
+Com um IP, ainda lê o `/status` da placa e avisa se o maior bloco livre
+estiver apertado para o record TLS de 16 KB do GitHub. Sai com erro se algo
+não fecha — rode antes de contar com uma atualização.
 
 ## Placa na LAN e manutenção
 
@@ -207,6 +218,7 @@ rbesp log 192.168.5.188
 
 rbesp clean
 rbesp limpar
+rbesp clean espelho
 
 rbesp install
 rbesp install user
@@ -244,8 +256,9 @@ do usuário (abre um terminal novo). `session` vale só nesta sessão.
 | `keygen` | — | `rbesp keygen` |
 | `sign` | — | `rbesp sign` |
 | `verify` | — | `rbesp verify` |
+| `ota check` | `ota`, `ota conferir` | `rbesp ota check [ip]` |
 | `logs` | `log` | `rbesp logs <ip>` |
-| `clean` | `limpar` | `rbesp clean` |
+| `clean` | `limpar` | `rbesp clean [espelho]` |
 | `install` | `setup` | `rbesp install [user\|session]` |
 
 ## Ver também

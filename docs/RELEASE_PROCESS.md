@@ -30,15 +30,27 @@ flowchart TB
   G --> H[Placa puxa OTA]
 ```
 
-1. `rbesp doctor` — IDF, conta `alpha6678` logada no `gh`, chave em `secrets/`.
+1. `rbesp doctor` — IDF, conta `alpha6678` logada no `gh`, chave em `secrets/`
+   e pubkey do firmware casando com a de `secrets/`.
    A CLI já usa essa conta neste repo; não precisa `gh auth switch`.
 2. Bump ou `rbesp publish all --dry-run` para ver o plano.
 3. `rbesp release os <semver>` (ou `rbesp os release <semver>`):
    - Compila o OS no espelho `C:\fw`
+   - **Confere a versão dentro do binário** e aborta se não bater
    - Cria a tag e o GitHub Release
    - Copia o `.bin` para `firmware/ribanense-esp/dist/`
    - Preenche `firmware.json` (`url`, `sha256`, `sig`) e faz push
-4. App da placa: `rbesp release Sobre 0.1.3` atualiza `catalog/esp-catalog.json`.
+4. `rbesp ota check` — refaz em terra o que a placa faz com o que ficou
+   publicado. Só depois disso conte com a atualização.
+5. App da placa: `rbesp release Sobre 0.1.3` atualiza `catalog/esp-catalog.json`.
+
+## Guarda de versão
+
+O número que a placa anuncia vem do header gerado no configure do CMake, e o
+do `app_desc` vem do `PROJECT_VER` no mesmo configure. `publish` compara os
+dois com a versão do pacote e recusa se divergirem. Sem essa guarda já foi
+publicado um asset "0.3.6" com `0.3.5` dentro: a placa baixava, reiniciava,
+continuava se dizendo 0.3.5 e baixava de novo, em laço.
 
 `publish all` detecta mudança de código desde a última tag (OS:
 `firmware/ribanense-esp/` + `firmware/esp-sdk/`, ignorando `firmware.json` e
