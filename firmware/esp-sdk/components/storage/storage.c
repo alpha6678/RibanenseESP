@@ -60,20 +60,30 @@ static void ensure_layout(void)
     }
 }
 
+/* O barramento sobrevive a um mount que falhou; so o cartao e reiniciado.
+ * Sem esta marca, cada retentativa com o cartao frio chamava
+ * spi_bus_initialize de novo e o driver cuspia
+ * "E spi: SPI bus already initialized" — erro que nao e erro, e que ensina
+ * a ignorar as linhas E do log. */
+static bool s_bus_ready;
+
 bool storage_mount(void)
 {
-    spi_bus_config_t bus = {
-        .sclk_io_num = BOARD_SD_SCK,
-        .mosi_io_num = BOARD_SD_MOSI,
-        .miso_io_num = BOARD_SD_MISO,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 4000,
-    };
-    esp_err_t err = spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO);
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(TAG, "spi2: %s", esp_err_to_name(err));
-        return false;
+    if (!s_bus_ready) {
+        spi_bus_config_t bus = {
+            .sclk_io_num = BOARD_SD_SCK,
+            .mosi_io_num = BOARD_SD_MOSI,
+            .miso_io_num = BOARD_SD_MISO,
+            .quadwp_io_num = -1,
+            .quadhd_io_num = -1,
+            .max_transfer_sz = 4000,
+        };
+        const esp_err_t err = spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "spi2: %s", esp_err_to_name(err));
+            return false;
+        }
+        s_bus_ready = true;
     }
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
@@ -91,7 +101,7 @@ bool storage_mount(void)
         .allocation_unit_size = 16 * 1024,
     };
 
-    err = esp_vfs_fat_sdspi_mount(STORAGE_MOUNT, &host, &slot, &mount, &s_card);
+    esp_err_t err = esp_vfs_fat_sdspi_mount(STORAGE_MOUNT, &host, &slot, &mount, &s_card);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "SD ausente ou FAT invalida: %s", esp_err_to_name(err));
         s_ready = false;
