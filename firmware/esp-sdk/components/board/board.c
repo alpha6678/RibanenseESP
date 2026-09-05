@@ -3,6 +3,7 @@
 #include "ribanense_esp_version.h"
 
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
 #include "esp_lcd_panel_io.h"
@@ -12,12 +13,79 @@
 #include "esp_rom_sys.h"
 #include "mbedtls/md.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "board";
 static esp_lcd_panel_handle_t s_panel;
 static esp_lcd_panel_io_handle_t s_io;
+static uint8_t s_bl_percent = 100;
+static bool s_bl_ready;
+
+#define BL_LEDC_MODE   LEDC_LOW_SPEED_MODE
+#define BL_LEDC_TIMER  LEDC_TIMER_0
+#define BL_LEDC_CH     LEDC_CHANNEL_0
+#define BL_LEDC_RES    LEDC_TIMER_10_BIT
+#define BL_LEDC_FREQ   5000
+#define BL_DUTY_MAX    1023
+#define BL_MIN         10
+#define BL_MAX         100
+#define BL_STEP        10
+
+static uint8_t bl_clamp(uint8_t percent)
+{
+    unsigned v = percent;
+    if (v < BL_MIN) {
+        v = BL_MIN;
+    }
+    if (v > BL_MAX) {
+        v = BL_MAX;
+    }
+    v = ((v + (BL_STEP / 2)) / BL_STEP) * BL_STEP;
+    if (v < BL_MIN) {
+        v = BL_MIN;
+    }
+    if (v > BL_MAX) {
+        v = BL_MAX;
+    }
+    return (uint8_t)v;
+}
+
+static void bl_duty(unsigned duty)
+{
+    if (!s_bl_ready) {
+        return;
+    }
+    if (duty > BL_DUTY_MAX) {
+        duty = BL_DUTY_MAX;
+    }
+    (void)ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CH, duty);
+    (void)ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CH);
+}
+
+static void bl_init(void)
+{
+    const ledc_timer_config_t timer = {
+        .speed_mode = BL_LEDC_MODE,
+        .duty_resolution = BL_LEDC_RES,
+        .timer_num = BL_LEDC_TIMER,
+        .freq_hz = BL_LEDC_FREQ,
+        .clk_cfg = LEDC_AUTO_CLK,
+    };
+    ESP_ERROR_CHECK(ledc_timer_config(&timer));
+    const ledc_channel_config_t ch = {
+        .gpio_num = BOARD_LCD_BL,
+        .speed_mode = BL_LEDC_MODE,
+        .channel = BL_LEDC_CH,
+        .intr_type = LEDC_INTR_DISABLE,
+        .timer_sel = BL_LEDC_TIMER,
+        .duty = 0,
+        .hpoint = 0,
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&ch));
+    s_bl_ready = true;
+}
 
 /* PD1:PD0 = 00: power-down entre conversões e PENIRQ ligado (datasheet). */
 #define XPT_Z1 0xB0
@@ -30,7 +98,7 @@ static void touch_init(void);
 static void pins_idle(void)
 {
     const gpio_config_t out = {
-        .pin_bit_mask = (1ULL << BOARD_LCD_BL) | (1ULL << BOARD_LED_R) |
+        .pin_bit_mask = (1ULL << BOARD_LED_R) |
                         (1ULL << BOARD_LED_G) | (1ULL << BOARD_LED_B) |
                         (1ULL << BOARD_AUDIO_EN) | (1ULL << BOARD_SD_CS) |
                         (1ULL << BOARD_TOUCH_CS) | (1ULL << BOARD_TOUCH_CLK) |
@@ -58,7 +126,7 @@ static void pins_idle(void)
     gpio_set_level(BOARD_LED_R, 1);
     gpio_set_level(BOARD_LED_G, 1);
     gpio_set_level(BOARD_LED_B, 1);
-    gpio_set_level(BOARD_LCD_BL, 0);
+    bl_init();
 }
 
 static esp_err_t lcd_init(void)
@@ -100,7 +168,7 @@ static esp_err_t lcd_init(void)
     ESP_RETURN_ON_ERROR(esp_lcd_panel_set_gap(s_panel, 0, 0), TAG, "gap");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_panel, false, false), TAG, "mirror");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "on");
-    board_backlight(true);
+    /* BL fica em 0 ate o OS aplicar os/settings.json (evita flash em 100%). */
     return ESP_OK;
 }
 
@@ -182,7 +250,22 @@ esp_err_t board_lcd_on_trans_done(esp_lcd_panel_io_color_trans_done_cb_t cb, voi
 
 void board_backlight(bool on)
 {
-    gpio_set_level(BOARD_LCD_BL, on ? 1 : 0);
+    if (on) {
+        board_backlight_set(BL_MAX);
+        return;
+    }
+    bl_duty(0);
+}
+
+void board_backlight_set(uint8_t percent)
+{
+    s_bl_percent = bl_clamp(percent);
+    bl_duty(((unsigned)s_bl_percent * BL_DUTY_MAX) / BL_MAX);
+}
+
+uint8_t board_backlight_get(void)
+{
+    return s_bl_percent;
 }
 
 void board_led_rgb(bool r, bool g, bool b)

@@ -12,7 +12,11 @@ void board_device_id(char *out, size_t max);
 void board_lan_key(char *out, size_t max);
 esp_lcd_panel_handle_t board_lcd(void);
 esp_err_t board_lcd_on_trans_done(esp_lcd_panel_io_color_trans_done_cb_t cb, void *ctx);
+/* true = 100%. false = duty 0 (so no init, enquanto o LCD sobe). */
 void board_backlight(bool on);
+/* 10–100, passo 10. Fora da faixa satura (nunca 0 pela UI). */
+void board_backlight_set(uint8_t percent);
+uint8_t board_backlight_get(void);
 void board_led_rgb(bool r, bool g, bool b);
 
 /* XPT2046: true se pressionou; x/y em pixels 240×320. */
