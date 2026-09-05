@@ -25,9 +25,9 @@
       "githubRepo": "RibanenseESP",
       "githubTagPrefix": "esp-redes-v",
       "minimumOsVersion": "0.0.2",
-      "version": "0.1.0",
-      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-redes-0.1.0.zip",
-      "sha256": "dbea918e80ae01d82de8f68a3b5fab3327436f45eb8e0d721279f40c00f4a496"
+      "version": "0.1.1",
+      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-redes-0.1.1.zip",
+      "sha256": "ad830ccafcd61eb361bc1a7b3508ffdc6d16125af5b8ada4957903ddada41832"
     }
   ]
 }
