@@ -458,7 +458,12 @@ static void http_cfg(esp_http_client_config_t *c, const char *url, int timeout_m
     }
 }
 
-static esp_http_client_handle_t http_open_url(const char *url, int timeout_ms, esp_err_t *out_err)
+/* no_cache vale para o manifesto: o raw.githubusercontent.com serve com
+ * max-age de 5 min e uma borda do CDN pode entregar o manifesto anterior
+ * logo depois de um release. O binario nao precisa: a URL leva a versao no
+ * nome, entao cada versao e um recurso diferente. */
+static esp_http_client_handle_t http_open_url(const char *url, int timeout_ms, bool no_cache,
+                                              esp_err_t *out_err)
 {
     *out_err = ESP_FAIL;
     for (int i = 0; i < 3; i++) {
@@ -469,6 +474,10 @@ static esp_http_client_handle_t http_open_url(const char *url, int timeout_ms, e
             *out_err = ESP_ERR_NO_MEM;
             note_http(url, ESP_ERR_NO_MEM, NULL);
             return NULL;
+        }
+        if (no_cache) {
+            (void)esp_http_client_set_header(cli, "Cache-Control", "no-cache");
+            (void)esp_http_client_set_header(cli, "Pragma", "no-cache");
         }
         esp_err_t err = esp_http_client_open(cli, 0);
         if (err == ESP_OK) {
@@ -524,7 +533,7 @@ static esp_err_t http_get_text(const char *url, char *out, int cap, int *out_n)
 
     for (int hop = 0; hop < HTTP_HOPS; hop++) {
         esp_err_t err = ESP_OK;
-        esp_http_client_handle_t cli = http_open_url(current, 20000, &err);
+        esp_http_client_handle_t cli = http_open_url(current, 20000, true, &err);
         if (cli == NULL) {
             return err;
         }
@@ -575,7 +584,7 @@ static esp_err_t http_stream_bin(const char *url, const char *want_sha, bool dry
     for (int hop = 0; hop < HTTP_HOPS; hop++) {
         esp_err_t err = ESP_OK;
         set_state(OTA_DOWNLOADING, "baixando...");
-        esp_http_client_handle_t cli = http_open_url(current, 60000, &err);
+        esp_http_client_handle_t cli = http_open_url(current, 60000, false, &err);
         if (cli == NULL) {
             set_http_err(0, err == ESP_ERR_NO_MEM ? "sem RAM" : "falha no download");
             return err;
@@ -813,7 +822,12 @@ static bool fetch_target(ota_target_t *out, bool require_newer)
     if (strcmp(pv, RIBANENSEESP_PRODUCT) != 0) {
         set_state(OTA_ERR, "produto diferente");
     } else if (require_newer && semver_cmp(vv, RIBANENSEESP_VERSION) <= 0) {
-        set_state(OTA_IDLE, "atual");
+        /* Diz qual versao o manifesto anunciou. Um "atual" sozinho esconde o
+         * caso em que uma borda do CDN devolveu o manifesto anterior logo
+         * depois de um release: a placa parece em dia e nao esta. */
+        char m[MSG_MAX];
+        snprintf(m, sizeof(m), "atual: %s", vv[0] ? vv : "?");
+        set_state(OTA_IDLE, m);
     } else if (uv[0] == 0) {
         set_state(OTA_ERR, "sem binario");
     } else if (!sig_ok(pv, vv, sv, sg)) {

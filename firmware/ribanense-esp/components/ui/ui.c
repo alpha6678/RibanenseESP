@@ -362,7 +362,8 @@ static void ota_poll(void)
     lv_color_t color = ui_color_white();
     if (st == OTA_ERR) {
         color = ui_color_red();
-    } else if (st == OTA_OK_REBOOT || (st == OTA_IDLE && strcmp(msg, "atual") == 0)) {
+    } else if (st == OTA_OK_REBOOT || (st == OTA_IDLE && strncmp(msg, "atual", 5) == 0)) {
+        /* A mensagem carrega a versao do manifesto ("atual: 0.4.0"). */
         color = ui_color_green();
     }
     set_home_ota(msg, color);

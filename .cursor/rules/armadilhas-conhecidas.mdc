@@ -51,6 +51,20 @@ vão contíguo de 16749 bytes.
 `ferramentas/baseline-memoria.json` e reprova quem passar do teto. Subir o
 teto exige ensaio verde em hardware.
 
+## 1d. Manifesto em cache faz a placa dizer que está atualizada
+
+**Sintoma** Logo depois de um release, a placa responde `atual` ao Atualizar,
+enquanto `rbesp ota check` do PC já enxerga a versão nova. Nada no log indica
+erro: o TLS valida, o manifesto é lido, a comparação de versão dá "não é mais
+nova".
+**Causa** `raw.githubusercontent.com` serve com `max-age=300` e o PC e a placa
+podem cair em bordas diferentes do CDN. A placa leu o manifesto **anterior**.
+**Correção** O GET do manifesto manda `Cache-Control: no-cache` e a mensagem
+passou a incluir a versão anunciada (`atual: 0.4.0`), para o caso de a borda
+ignorar o cabeçalho. O download do `.bin` não precisa disso: a URL leva a
+versão no nome, então cada versão é um recurso distinto.
+**Se acontecer** Espere os 5 minutos e tente de novo; não é falha de OTA.
+
 ## 2. Versão antiga compilada dentro do binário
 
 **Sintoma** A placa recebe o OTA e continua se anunciando na versão anterior,
