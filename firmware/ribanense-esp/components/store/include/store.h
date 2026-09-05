@@ -3,8 +3,10 @@
 #include "esp_err.h"
 #include <stdbool.h>
 
-/* Metadados na UI do OS (home/catalogo), nao pastas no cartao. */
-#define STORE_MAX_APPS 24
+/* Metadados na UI do OS (home/catalogo), nao pastas no cartao.
+ * Cada slot custa ~376 B de DRAM estatica e o OTA precisa de 16749 B
+ * contiguos: 24 slots comiam o unico vao grande da heap. */
+#define STORE_MAX_APPS 8
 #define STORE_ID_MAX   48
 #define STORE_NAME_MAX 32
 #define STORE_VER_MAX  16
@@ -36,7 +38,10 @@ typedef struct {
 } store_remote_t;
 
 int store_scan_installed(store_app_t *out, int max);
-int store_catalog_copy(store_remote_t *out, int max);
+/* Leitura direta do catalogo em cache. Evita uma segunda copia do vetor na
+ * UI; os ponteiros valem ate o proximo store_catalog_start(). */
+int store_catalog_count(void);
+const store_remote_t *store_catalog_at(int idx);
 void store_catalog_start(void);
 void store_install_start(const char *id);
 store_state_t store_state(void);

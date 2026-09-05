@@ -172,17 +172,17 @@ bool store_find_installed(const char *id, store_app_t *out)
     return found;
 }
 
-int store_catalog_copy(store_remote_t *out, int max)
+int store_catalog_count(void)
 {
-    if (out == NULL || max <= 0) {
-        return 0;
+    return s_cat_n;
+}
+
+const store_remote_t *store_catalog_at(int idx)
+{
+    if (idx < 0 || idx >= s_cat_n) {
+        return NULL;
     }
-    int n = s_cat_n;
-    if (n > max) {
-        n = max;
-    }
-    memcpy(out, s_cat, (size_t)n * sizeof(store_remote_t));
-    return n;
+    return &s_cat[idx];
 }
 
 #define HTTP_UA "RibanenseESP"

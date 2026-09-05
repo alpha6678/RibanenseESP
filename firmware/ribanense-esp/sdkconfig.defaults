@@ -14,7 +14,12 @@ CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
 CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
 # So mandamos GET curto; 2048 chega e sobra heap para o record de entrada.
 CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=2048
-CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+# Desligado de proposito. O buffer dinamico devolve o bloco de 16 KB entre
+# records e o reconquista na leitura seguinte: num download de 1,4 MB isso e
+# uma aposta por record, centenas de vezes, com a heap ja fragmentada.
+# Desligado, o bloco e reservado uma unica vez no handshake e fica ate o fim.
+# O ganho do buffer dinamico e para muitas conexoes curtas, nao para uma longa.
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=n
 # Ninguem le o certificado do par depois do handshake; guarda-lo custa ~4 KB.
 CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
 CONFIG_LWIP_IPV6=n
@@ -29,12 +34,18 @@ CONFIG_FATFS_LFN_HEAP=y
 CONFIG_LV_CONF_SKIP=y
 CONFIG_LV_COLOR_DEPTH=16
 CONFIG_LV_COLOR_DEPTH_16=y
-CONFIG_LV_DEF_REFR_PERIOD=333
+# 333 ms davam 3 FPS: o toque era lido a cada 20 ms, mas a tecla pressionada
+# so aparecia no proximo quadro — um toque rapido terminava antes de qualquer
+# quadro mostrar o feedback. O LVGL so redesenha area invalidada, entao tela
+# parada a 30 Hz nao custa mais que a 3 Hz.
+CONFIG_LV_DEF_REFR_PERIOD=33
 CONFIG_LV_USE_THEME_SIMPLE=y
 CONFIG_LV_USE_THEME_DEFAULT=n
 CONFIG_LV_USE_KEYBOARD=y
 CONFIG_LV_USE_TEXTAREA=y
-CONFIG_LV_USE_BTNMATRIX=y
+# No LVGL 9 o simbolo e BUTTONMATRIX; BTNMATRIX era do LVGL 8 e virava
+# "unknown kconfig symbol" silencioso no build.
+CONFIG_LV_USE_BUTTONMATRIX=y
 CONFIG_LV_USE_SWITCH=y
 CONFIG_LV_USE_BAR=y
 CONFIG_LV_USE_CHECKBOX=y
@@ -45,7 +56,6 @@ CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_DEFAULT_MONTSERRAT_14=y
 CONFIG_LV_USE_LOG=n
 CONFIG_LV_USE_SYSMON=n
-CONFIG_LV_USE_DEMO_WIDGETS=n
 CONFIG_LV_USE_SNAPSHOT=n
 CONFIG_LV_USE_MONKEY=n
 CONFIG_LV_USE_GRIDNAV=n

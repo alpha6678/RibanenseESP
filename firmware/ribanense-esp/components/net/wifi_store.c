@@ -139,6 +139,12 @@ static esp_err_t flush(void)
 
 esp_err_t wifi_store_load(void)
 {
+    /* try_restore_now() chama isto a cada retry do backoff (5/15/30/60 s).
+     * Sem esta guarda, cada tentativa gastava 2 KB de pilha e uma arvore
+     * cJSON para reler um arquivo que ja esta em RAM. */
+    if (s_loaded) {
+        return ESP_OK;
+    }
     if (!storage_ready()) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -150,6 +156,8 @@ esp_err_t wifi_store_load(void)
     }
     cJSON *root = cJSON_Parse(buf);
     if (root == NULL) {
+        /* Marca carregado: reparsear lixo a cada retry so queima heap. */
+        s_loaded = true;
         ESP_LOGW(TAG, "networks.json invalido");
         return ESP_FAIL;
     }

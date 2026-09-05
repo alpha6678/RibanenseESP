@@ -26,9 +26,19 @@ void app_main(void)
     ESP_ERROR_CHECK(ota_init());
 
     ESP_ERROR_CHECK(board_init());
+
+    /* Splash antes das etapas lentas: montar o cartao e subir o Wi-Fi levam
+     * cerca de um segundo, e ate aqui a tela ficava apagada. O giro anda uma
+     * vez por etapa concluida, entao ele para se alguma etapa travar. */
+    ESP_ERROR_CHECK(ui_boot_begin());
+
     (void)storage_mount();
+    ui_boot_step();
+
     (void)settings_load();
     board_backlight_set(settings_brightness());
+    ui_boot_step();
+
     if (net_init() != ESP_OK) {
         ESP_LOGE(TAG, "Wi-Fi nao iniciou; scan fica indisponivel");
     } else {
@@ -37,6 +47,8 @@ void app_main(void)
         (void)net_set_hostname(host);
         (void)net_sta_restore();
     }
+    ui_boot_step();
+
     ESP_ERROR_CHECK(ui_init());
 
     while (1) {

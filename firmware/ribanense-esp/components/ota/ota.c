@@ -38,6 +38,12 @@
 #define LOG_RING 10
 #define LOG_LINE 88
 
+/* O record TLS do GitHub custa 16749 B contiguos e o mbedtls aloca com
+ * MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT. Abaixo deste piso o download morre
+ * em MBEDTLS_ERR_SSL_ALLOC_FAILED: melhor recusar com mensagem honesta. */
+#define OTA_TLS_RECORD 16749u
+#define OTA_BLK_MIN    20000u
+
 static httpd_handle_t s_httpd;
 static volatile ota_state_t s_state = OTA_IDLE;
 static char s_msg[MSG_MAX] = "OTA";
@@ -51,8 +57,32 @@ static esp_err_t s_http_err;
 static char s_log[LOG_RING][LOG_LINE];
 static uint8_t s_log_w;
 static uint8_t s_log_n;
+static uint32_t s_blk_min;
 
 static void probe_task(void *arg);
+static void rehearse_task(void *arg);
+
+/* Mesma capacidade que o mbedtls pede. heap_caps_get_largest_free_block com
+ * MALLOC_CAP_8BIT sozinho conta regioes que o TLS nao pode usar. */
+static uint32_t blk_now(void)
+{
+    return (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+static uint32_t heap_now(void)
+{
+    return (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+static uint32_t blk_track(const char *stage)
+{
+    const uint32_t blk = blk_now();
+    if (s_blk_min == 0 || blk < s_blk_min) {
+        s_blk_min = blk;
+    }
+    ESP_LOGI(TAG, "blk %s=%u heap=%u", stage, (unsigned)blk, (unsigned)heap_now());
+    return blk;
+}
 
 static int ota_log_vprintf(const char *fmt, va_list ap)
 {
@@ -208,10 +238,12 @@ static bool sig_ok(const char *product, const char *ver, const char *sha, const 
     return true;
 }
 
-static esp_err_t write_stream(esp_ota_handle_t h, mbedtls_sha256_context *sha, const void *p, int n)
+static esp_err_t write_stream(esp_ota_handle_t h, mbedtls_sha256_context *sha, const void *p, int n, bool dry)
 {
     mbedtls_sha256_update(sha, p, (size_t)n);
-    return esp_ota_write(h, p, (size_t)n);
+    /* No ensaio o byte e conferido e descartado: mede o caminho TLS inteiro
+     * sem apagar o slot nem mexer no boot. */
+    return dry ? ESP_OK : esp_ota_write(h, p, (size_t)n);
 }
 
 static esp_err_t finish_ota(esp_ota_handle_t h, const esp_partition_t *part, mbedtls_sha256_context *sha,
@@ -240,16 +272,19 @@ static esp_err_t finish_ota(esp_ota_handle_t h, const esp_partition_t *part, mbe
 static esp_err_t on_status(httpd_req_t *req)
 {
     char ip[NET_IP_MAX];
-    char body[384];
+    char body[448];
     net_sta_ip(ip, sizeof(ip));
     snprintf(body, sizeof(body),
              "{\"product\":\"%s\",\"version\":\"%s\",\"ip\":\"%s\",\"ota\":\"%s\","
-             "\"err\":\"%s\",\"http\":%d,\"errno\":%d,\"time\":%d,\"heap\":%u,\"blk\":%u,\"url\":\"%s\"}",
+             "\"err\":\"%s\",\"http\":%d,\"errno\":%d,\"time\":%d,\"heap\":%u,\"blk\":%u,"
+             "\"blkMin\":%u,\"blkFloor\":%u,\"url\":\"%s\"}",
              RIBANENSEESP_PRODUCT, RIBANENSEESP_VERSION, ip, s_msg,
              s_last_err[0] ? s_last_err : "", s_http_status, s_last_errno,
              net_time_ok() ? 1 : 0,
-             (unsigned)esp_get_free_heap_size(),
-             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+             (unsigned)heap_now(),
+             (unsigned)blk_now(),
+             (unsigned)s_blk_min,
+             (unsigned)OTA_BLK_MIN,
              s_last_url);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
@@ -276,6 +311,22 @@ static esp_err_t on_probe(httpd_req_t *req)
         s_pull_busy = true;
         set_state(OTA_CHECKING, "probe...");
         if (xTaskCreate(probe_task, "ota_probe", OTA_TASK_STACK, NULL, 4, NULL) != pdPASS) {
+            s_pull_busy = false;
+            set_state(OTA_ERR, "sem tarefa");
+        }
+    }
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, "{\"ok\":1}");
+}
+
+/* Ensaio de OTA: exercita manifesto, assinatura, TLS e o binario inteiro
+ * sem apagar o slot. A CLI usa isto como gate antes de publicar. */
+static esp_err_t on_rehearse(httpd_req_t *req)
+{
+    if (!s_pull_busy) {
+        s_pull_busy = true;
+        set_state(OTA_CHECKING, "ensaio...");
+        if (xTaskCreate(rehearse_task, "ota_ensaio", OTA_TASK_STACK, NULL, 4, NULL) != pdPASS) {
             s_pull_busy = false;
             set_state(OTA_ERR, "sem tarefa");
         }
@@ -342,7 +393,7 @@ static esp_err_t on_update(httpd_req_t *req)
             httpd_resp_sendstr(req, "recv");
             return ESP_OK;
         }
-        err = write_stream(h, &sha, s_chunk, n);
+        err = write_stream(h, &sha, s_chunk, n, false);
         if (err != ESP_OK) {
             (void)esp_ota_abort(h);
             mbedtls_sha256_free(&sha);
@@ -507,7 +558,8 @@ static esp_err_t http_get_text(const char *url, char *out, int cap, int *out_n)
     return ESP_FAIL;
 }
 
-static esp_err_t http_stream_bin(const char *url, const char *want_sha)
+/* dry=true faz o ensaio: baixa, confere o sha256 e descarta. */
+static esp_err_t http_stream_bin(const char *url, const char *want_sha, bool dry)
 {
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     if (part == NULL) {
@@ -528,11 +580,16 @@ static esp_err_t http_stream_bin(const char *url, const char *want_sha)
             set_http_err(0, err == ESP_ERR_NO_MEM ? "sem RAM" : "falha no download");
             return err;
         }
-        ESP_LOGI(TAG, "download heap=%u blk=%u pilha=%u",
-                 (unsigned)esp_get_free_heap_size(),
-                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+        ESP_LOGI(TAG, "download pilha=%u",
                  (unsigned)uxTaskGetStackHighWaterMark(NULL));
+        if (blk_track("pos-handshake") < OTA_BLK_MIN) {
+            esp_http_client_close(cli);
+            esp_http_client_cleanup(cli);
+            set_state(OTA_ERR, "RAM fragmentada");
+            return ESP_ERR_NO_MEM;
+        }
         int len = (int)esp_http_client_fetch_headers(cli);
+        blk_track("pos-headers");
         int status = esp_http_client_get_status_code(cli);
         s_http_status = status;
         if (http_is_redirect(status)) {
@@ -559,32 +616,43 @@ static esp_err_t http_stream_bin(const char *url, const char *want_sha)
         }
 
         esp_ota_handle_t h = 0;
-        err = esp_ota_begin(part, len > 0 ? (size_t)len : OTA_WITH_SEQUENTIAL_WRITES, &h);
-        if (err != ESP_OK) {
-            esp_http_client_close(cli);
-            esp_http_client_cleanup(cli);
-            set_state(OTA_ERR, "falha OTA");
-            return err;
-        }
+        bool ota_open = false;
         mbedtls_sha256_context sha;
         mbedtls_sha256_init(&sha);
         mbedtls_sha256_starts(&sha, 0);
         int n;
         int total = 0;
         while ((n = esp_http_client_read(cli, (char *)s_chunk, CHUNK)) > 0) {
+            if (!ota_open && !dry) {
+                /* Apaga a flash so depois que o primeiro record TLS ja esta
+                 * em RAM. O erase do slot bloqueia o cache por dezenas de ms
+                 * e era nessa janela que o mbedtls tentava reservar os
+                 * 16749 B contiguos e falhava. */
+                err = esp_ota_begin(part, len > 0 ? (size_t)len : OTA_WITH_SEQUENTIAL_WRITES, &h);
+                if (err != ESP_OK) {
+                    set_state(OTA_ERR, "falha OTA");
+                    break;
+                }
+                ota_open = true;
+                blk_track("pos-ota-begin");
+            }
             total += n;
             if ((size_t)total > SLOT_MAX) {
                 err = ESP_ERR_INVALID_SIZE;
                 break;
             }
-            err = write_stream(h, &sha, s_chunk, n);
+            err = write_stream(h, &sha, s_chunk, n, dry);
             if (err != ESP_OK) {
                 break;
             }
             if ((total & 0xffff) < n) {
                 char m[24];
-                snprintf(m, sizeof(m), "baixando %dk", total / 1024);
+                snprintf(m, sizeof(m), "%s %dk", dry ? "ensaio" : "baixando", total / 1024);
                 set_state(OTA_DOWNLOADING, m);
+                const uint32_t blk = blk_now();
+                if (blk < s_blk_min) {
+                    s_blk_min = blk;
+                }
             }
         }
         if (n < 0 && err == ESP_OK) {
@@ -592,6 +660,36 @@ static esp_err_t http_stream_bin(const char *url, const char *want_sha)
         }
         esp_http_client_close(cli);
         esp_http_client_cleanup(cli);
+        ESP_LOGI(TAG, "fim do %s total=%d blkMin=%u", dry ? "ensaio" : "download",
+                 total, (unsigned)s_blk_min);
+        if (dry) {
+            /* Nada foi apagado nem gravado: so o veredito do sha256. */
+            uint8_t dig[32];
+            char hex[65];
+            mbedtls_sha256_finish(&sha, dig);
+            hex64(dig, hex);
+            mbedtls_sha256_free(&sha);
+            if (err != ESP_OK || total == 0) {
+                set_state(OTA_ERR, "ensaio falhou");
+                return err != ESP_OK ? err : ESP_FAIL;
+            }
+            if (want_sha != NULL && want_sha[0] != 0 && !hex_eq(hex, want_sha)) {
+                ESP_LOGE(TAG, "ensaio sha256 %s != %s", hex, want_sha);
+                set_state(OTA_ERR, "ensaio sha256");
+                return ESP_ERR_INVALID_CRC;
+            }
+            return ESP_OK;
+        }
+        if (!ota_open) {
+            /* Nao chegou um byte util: nada foi apagado, o slot segue intacto.
+             * Mantem a mensagem de erro que o esp_ota_begin ja tenha posto. */
+            mbedtls_sha256_free(&sha);
+            if (err == ESP_OK) {
+                set_state(OTA_ERR, "sem dados");
+                err = ESP_FAIL;
+            }
+            return err;
+        }
         if (err != ESP_OK) {
             (void)esp_ota_abort(h);
             mbedtls_sha256_free(&sha);
@@ -668,37 +766,36 @@ static void probe_task(void *arg)
     vTaskDelete(NULL);
 }
 
-static void pull_task(void *arg)
+typedef struct {
+    char url[512];
+    char sha[72];
+} ota_target_t;
+
+/* Le o manifesto e valida produto e assinatura. require_newer distingue o
+ * pull (so aceita versao maior) do ensaio (aceita a propria versao, porque
+ * o objetivo e exercitar o TLS, nao trocar de imagem).
+ * Em caso de falha ja deixa a mensagem de estado pronta. */
+static bool fetch_target(ota_target_t *out, bool require_newer)
 {
-    (void)arg;
     char *json = malloc(2048);
     if (json == NULL) {
         set_state(OTA_ERR, "sem RAM");
-        s_pull_busy = false;
-        vTaskDelete(NULL);
-        return;
+        return false;
     }
-
     set_state(OTA_CHECKING, "relogio...");
     (void)net_time_wait(20000);
     set_state(OTA_CHECKING, "buscando...");
     int n = 0;
-    esp_err_t err = http_get_text(RIBANENSEESP_MANIFEST_URL, json, 2048, &n);
-    if (err != ESP_OK) {
+    if (http_get_text(RIBANENSEESP_MANIFEST_URL, json, 2048, &n) != ESP_OK) {
         free(json);
         map_get_fail();
-        s_pull_busy = false;
-        vTaskDelete(NULL);
-        return;
+        return false;
     }
-
     cJSON *root = cJSON_Parse(json);
     free(json);
     if (root == NULL) {
         set_state(OTA_ERR, "manifesto invalido");
-        s_pull_busy = false;
-        vTaskDelete(NULL);
-        return;
+        return false;
     }
 
     const cJSON *product = cJSON_GetObjectItem(root, "product");
@@ -712,45 +809,39 @@ static void pull_task(void *arg)
     const char *sv = cJSON_IsString(sha) ? sha->valuestring : "";
     const char *sg = cJSON_IsString(sig) ? sig->valuestring : "";
 
+    bool ok = false;
     if (strcmp(pv, RIBANENSEESP_PRODUCT) != 0) {
-        cJSON_Delete(root);
         set_state(OTA_ERR, "produto diferente");
-        s_pull_busy = false;
-        vTaskDelete(NULL);
-        return;
-    }
-    if (semver_cmp(vv, RIBANENSEESP_VERSION) <= 0) {
-        cJSON_Delete(root);
+    } else if (require_newer && semver_cmp(vv, RIBANENSEESP_VERSION) <= 0) {
         set_state(OTA_IDLE, "atual");
-        s_pull_busy = false;
-        vTaskDelete(NULL);
-        return;
-    }
-    if (uv[0] == 0) {
-        cJSON_Delete(root);
+    } else if (uv[0] == 0) {
         set_state(OTA_ERR, "sem binario");
-        s_pull_busy = false;
-        vTaskDelete(NULL);
-        return;
-    }
-    if (!sig_ok(pv, vv, sv, sg)) {
-        cJSON_Delete(root);
+    } else if (!sig_ok(pv, vv, sv, sg)) {
         set_state(OTA_ERR, "assinatura");
+    } else {
+        memset(out, 0, sizeof(*out));
+        strncpy(out->url, uv, sizeof(out->url) - 1);
+        strncpy(out->sha, sv, sizeof(out->sha) - 1);
+        ok = true;
+    }
+    cJSON_Delete(root);
+    return ok;
+}
+
+static void pull_task(void *arg)
+{
+    (void)arg;
+    s_blk_min = 0;
+    blk_track("inicio do pull");
+
+    ota_target_t tgt;
+    if (!fetch_target(&tgt, true)) {
         s_pull_busy = false;
         vTaskDelete(NULL);
         return;
     }
 
-    char url_copy[512];
-    char sha_copy[72];
-    strncpy(url_copy, uv, sizeof(url_copy) - 1);
-    url_copy[sizeof(url_copy) - 1] = 0;
-    strncpy(sha_copy, sv, sizeof(sha_copy) - 1);
-    sha_copy[sizeof(sha_copy) - 1] = 0;
-    cJSON_Delete(root);
-
-    err = http_stream_bin(url_copy, sha_copy);
-    if (err != ESP_OK) {
+    if (http_stream_bin(tgt.url, tgt.sha, false) != ESP_OK) {
         if (s_state != OTA_ERR) {
             set_state(OTA_ERR, "falha no download");
         }
@@ -763,6 +854,36 @@ static void pull_task(void *arg)
     s_pull_busy = false;
     vTaskDelay(pdMS_TO_TICKS(400));
     esp_restart();
+    vTaskDelete(NULL);
+}
+
+/* Ensaio: mesmo caminho de rede do pull, sem apagar o slot nem trocar o
+ * boot. Roda com o httpd no ar e o cartao montado, ou seja, com menos RAM
+ * livre que o pull real: ensaio verde e um piso, nao um palpite. */
+static void rehearse_task(void *arg)
+{
+    (void)arg;
+    s_blk_min = 0;
+    blk_track("inicio do ensaio");
+
+    ota_target_t tgt;
+    if (!fetch_target(&tgt, false)) {
+        s_pull_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    const esp_err_t err = http_stream_bin(tgt.url, tgt.sha, true);
+    if (err == ESP_OK) {
+        char m[MSG_MAX];
+        snprintf(m, sizeof(m), "ensaio ok blk=%u", (unsigned)s_blk_min);
+        set_state(OTA_IDLE, m);
+        ESP_LOGI(TAG, "ensaio aprovado blkMin=%u piso=%u",
+                 (unsigned)s_blk_min, (unsigned)OTA_BLK_MIN);
+    } else if (s_state != OTA_ERR) {
+        set_state(OTA_ERR, "ensaio falhou");
+    }
+    s_pull_busy = false;
     vTaskDelete(NULL);
 }
 
@@ -907,12 +1028,18 @@ esp_err_t ota_start_httpd(void)
         .method = HTTP_GET,
         .handler = on_pull,
     };
+    const httpd_uri_t rehearse = {
+        .uri = "/rehearse",
+        .method = HTTP_GET,
+        .handler = on_rehearse,
+    };
     httpd_register_uri_handler(s_httpd, &status);
     httpd_register_uri_handler(s_httpd, &update);
     httpd_register_uri_handler(s_httpd, &logu);
     httpd_register_uri_handler(s_httpd, &probe);
     httpd_register_uri_handler(s_httpd, &pull);
-    ESP_LOGI(TAG, "httpd :80 /status /log /probe /pull /update");
+    httpd_register_uri_handler(s_httpd, &rehearse);
+    ESP_LOGI(TAG, "httpd :80 /status /log /probe /pull /rehearse /update");
     return ESP_OK;
 }
 

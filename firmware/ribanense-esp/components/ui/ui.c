@@ -26,11 +26,17 @@
 
 #define BUF_LINES     20
 #define ROW_H         48
-#define UI_KB_H       ((BOARD_LCD_V * 35) / 100)
+/* 4 linhas de teclas em 240 px de largura: com 10 colunas a tecla tem ~22 px.
+ * 100 px de altura deixa a tecla quadrada. Os 112 px do calculo por
+ * porcentagem davam 24x28 e a tecla saia esticada na vertical. */
+#define UI_KB_H       100
 #define SCAN_PERIOD_US 1000000
 
 static const char *TAG = "ui";
 static lv_display_t *s_disp;
+static lv_obj_t *s_splash;
+static lv_obj_t *s_splash_spin;
+static uint8_t s_spin_i;
 static lv_obj_t *s_home;
 static lv_obj_t *s_settings;
 static lv_obj_t *s_wifi;
@@ -61,7 +67,6 @@ static bool s_store_live;
 static char s_launch_bin[STORE_PATH_MAX];
 static store_app_t s_home_apps[STORE_MAX_APPS];
 static int s_home_app_n;
-static store_remote_t s_remotes[STORE_MAX_APPS];
 static int s_remote_n;
 static store_state_t s_store_seen = STORE_IDLE;
 static lv_obj_t *s_bright;
@@ -164,35 +169,89 @@ static void label_left(lv_obj_t *lab)
     lv_obj_align(lab, LV_ALIGN_LEFT_MID, 0, 0);
 }
 
-static void style_keys(lv_obj_t *kb, lv_style_selector_t sel, bool pressed)
+/* lv_obj_set_style_* invalida a area do objeto mesmo quando o valor novo e
+ * igual ao antigo. Os polls de ui_tick() rodam a cada volta do laco, entao
+ * escrever a cor sem conferir mandava a tela inteira ser redesenhada de
+ * graca — barato a 3 FPS, caro a 30. */
+static void label_color(lv_obj_t *lab, lv_color_t color)
 {
-    lv_obj_set_style_bg_color(kb, ui_color_black(), sel);
-    lv_obj_set_style_bg_opa(kb, LV_OPA_COVER, sel);
-    lv_obj_set_style_text_color(kb, ui_color_white(), sel);
-    lv_obj_set_style_border_color(kb, pressed ? ui_color_yellow() : ui_color_white(), sel);
-    lv_obj_set_style_border_width(kb, pressed ? 2 : 1, sel);
-    lv_obj_set_style_radius(kb, 0, sel);
-    lv_obj_set_style_shadow_width(kb, 0, sel);
-    lv_obj_set_style_transform_width(kb, 0, sel);
-    lv_obj_set_style_transform_height(kb, 0, sel);
-    lv_obj_set_style_pad_all(kb, 0, sel);
+    if (lab == NULL) {
+        return;
+    }
+    if (!lv_color_eq(lv_obj_get_style_text_color(lab, LV_PART_MAIN), color)) {
+        lv_obj_set_style_text_color(lab, color, 0);
+    }
+}
+
+static void label_text(lv_obj_t *lab, const char *text)
+{
+    if (lab == NULL || text == NULL) {
+        return;
+    }
+    if (strcmp(lv_label_get_text(lab), text) != 0) {
+        lv_label_set_text(lab, text);
+    }
+}
+
+/* Estilos do teclado: estaticos e compartilhados.
+ * A versao anterior escrevia 9 propriedades locais para 32 combinacoes de
+ * estado (288 alocacoes no pool do LVGL) toda vez que o teclado nascia.
+ * Um lv_style_t estatico guarda as propriedades uma vez; registra-lo em
+ * varias combinacoes custa so uma entrada de lista por combinacao. */
+static lv_style_t s_st_kb_main;
+static lv_style_t s_st_key;
+static lv_style_t s_st_key_press;
+static bool s_kb_styles_ready;
+
+static void kb_styles_init(void)
+{
+    if (s_kb_styles_ready) {
+        return;
+    }
+    s_kb_styles_ready = true;
+
+    lv_style_init(&s_st_kb_main);
+    lv_style_set_bg_color(&s_st_kb_main, ui_color_black());
+    lv_style_set_bg_opa(&s_st_kb_main, LV_OPA_COVER);
+    lv_style_set_pad_all(&s_st_kb_main, 2);
+    lv_style_set_pad_row(&s_st_kb_main, 2);
+    lv_style_set_pad_column(&s_st_kb_main, 2);
+    lv_style_set_border_width(&s_st_kb_main, 0);
+    lv_style_set_outline_width(&s_st_kb_main, 0);
+    lv_style_set_radius(&s_st_kb_main, 0);
+    lv_style_set_shadow_width(&s_st_kb_main, 0);
+
+    lv_style_init(&s_st_key);
+    lv_style_set_bg_color(&s_st_key, ui_color_black());
+    lv_style_set_bg_opa(&s_st_key, LV_OPA_COVER);
+    lv_style_set_text_color(&s_st_key, ui_color_white());
+    lv_style_set_border_color(&s_st_key, ui_color_white());
+    lv_style_set_border_width(&s_st_key, 1);
+    lv_style_set_radius(&s_st_key, 0);
+    lv_style_set_shadow_width(&s_st_key, 0);
+    lv_style_set_transform_width(&s_st_key, 0);
+    lv_style_set_transform_height(&s_st_key, 0);
+    lv_style_set_pad_all(&s_st_key, 0);
+
+    /* Tecla pressionada troca o fundo inteiro, nao so a borda: numa tecla de
+     * 24 px uma borda de 2 px passa despercebida. */
+    lv_style_init(&s_st_key_press);
+    lv_style_set_bg_color(&s_st_key_press, ui_color_blue());
+    lv_style_set_bg_opa(&s_st_key_press, LV_OPA_COVER);
+    lv_style_set_text_color(&s_st_key_press, ui_color_white());
+    lv_style_set_border_color(&s_st_key_press, ui_color_yellow());
+    lv_style_set_border_width(&s_st_key_press, 1);
 }
 
 static void style_keyboard(lv_obj_t *kb)
 {
+    kb_styles_init();
     lv_obj_remove_style_all(kb);
-    lv_obj_set_style_bg_color(kb, ui_color_black(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(kb, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(kb, 2, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(kb, 2, LV_PART_MAIN);
-    lv_obj_set_style_pad_column(kb, 2, LV_PART_MAIN);
-    lv_obj_set_style_border_width(kb, 0, LV_PART_MAIN);
-    lv_obj_set_style_outline_width(kb, 0, LV_PART_MAIN);
-    lv_obj_set_style_outline_width(kb, 0, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
-    lv_obj_set_style_radius(kb, 0, LV_PART_MAIN);
-    lv_obj_set_style_shadow_width(kb, 0, LV_PART_MAIN);
+    lv_obj_add_style(kb, &s_st_kb_main, LV_PART_MAIN);
 
-    const lv_state_t bits[] = {
+    /* O lv_keyboard poe CHECKED nas teclas de modo e FOCUS_KEY na navegacao;
+     * sem cobrir essas combinacoes o tema volta a pintar por baixo. */
+    static const lv_state_t bits[] = {
         LV_STATE_CHECKED, LV_STATE_FOCUSED, LV_STATE_FOCUS_KEY, LV_STATE_EDITED,
     };
     for (int mask = 0; mask < 16; mask++) {
@@ -202,8 +261,8 @@ static void style_keyboard(lv_obj_t *kb)
                 sel |= bits[b];
             }
         }
-        style_keys(kb, sel, false);
-        style_keys(kb, sel | LV_STATE_PRESSED, true);
+        lv_obj_add_style(kb, &s_st_key, sel);
+        lv_obj_add_style(kb, &s_st_key_press, sel | LV_STATE_PRESSED);
     }
 }
 
@@ -231,20 +290,14 @@ static void set_wifi_status(const char *msg, lv_color_t color)
     if (s_wifi_status == NULL) {
         return;
     }
-    if (strcmp(lv_label_get_text(s_wifi_status), msg) == 0) {
-        return;
-    }
-    lv_label_set_text(s_wifi_status, msg);
-    lv_obj_set_style_text_color(s_wifi_status, color, 0);
+    label_text(s_wifi_status, msg);
+    label_color(s_wifi_status, color);
 }
 
 static void set_pass_status(const char *msg, lv_color_t color)
 {
-    if (s_pass_status == NULL) {
-        return;
-    }
-    lv_label_set_text(s_pass_status, msg);
-    lv_obj_set_style_text_color(s_pass_status, color, 0);
+    label_text(s_pass_status, msg);
+    label_color(s_pass_status, color);
 }
 
 static void set_home_wifi(const char *ip)
@@ -258,12 +311,8 @@ static void set_home_wifi(const char *ip)
     } else {
         snprintf(text, sizeof(text), LV_SYMBOL_WIFI "  Wi-Fi");
     }
-    if (strcmp(lv_label_get_text(s_home_wifi_lab), text) != 0) {
-        lv_label_set_text(s_home_wifi_lab, text);
-    }
-    lv_obj_set_style_text_color(s_home_wifi_lab, (ip != NULL && ip[0] != 0) ? ui_color_green()
-                                                                           : ui_color_white(),
-                                0);
+    label_text(s_home_wifi_lab, text);
+    label_color(s_home_wifi_lab, (ip != NULL && ip[0] != 0) ? ui_color_green() : ui_color_white());
 }
 
 static void set_home_ota(const char *msg, lv_color_t color)
@@ -273,10 +322,8 @@ static void set_home_ota(const char *msg, lv_color_t color)
     }
     char text[52];
     snprintf(text, sizeof(text), LV_SYMBOL_REFRESH "  %s", msg);
-    if (strcmp(lv_label_get_text(s_home_upd_lab), text) != 0) {
-        lv_label_set_text(s_home_upd_lab, text);
-    }
-    lv_obj_set_style_text_color(s_home_upd_lab, color, 0);
+    label_text(s_home_upd_lab, text);
+    label_color(s_home_upd_lab, color);
 }
 
 static void on_lan_up(void)
@@ -409,24 +456,22 @@ static void refresh_home_apps(void)
 
 static void set_store_status(const char *msg, lv_color_t color)
 {
-    if (s_store_status == NULL) {
-        return;
-    }
-    lv_label_set_text(s_store_status, msg);
-    lv_obj_set_style_text_color(s_store_status, color, 0);
+    label_text(s_store_status, msg);
+    label_color(s_store_status, color);
 }
 
 static void on_remote_click(lv_event_t *e)
 {
-    const char *id = (const char *)lv_event_get_user_data(e);
-    if (id == NULL || id[0] == 0) {
+    const int idx = (int)(uintptr_t)lv_event_get_user_data(e);
+    const store_remote_t *app = store_catalog_at(idx);
+    if (app == NULL || app->id[0] == 0) {
         return;
     }
     if (net_sta_state() != NET_STA_GOT_IP) {
         set_store_status("sem rede", ui_color_red());
         return;
     }
-    store_install_start(id);
+    store_install_start(app->id);
 }
 
 static void fill_store_list(void)
@@ -435,7 +480,7 @@ static void fill_store_list(void)
         return;
     }
     lv_obj_clean(s_store_list);
-    s_remote_n = store_catalog_copy(s_remotes, STORE_MAX_APPS);
+    s_remote_n = store_catalog_count();
     if (s_remote_n <= 0) {
         set_store_status(store_message(), ui_color_white());
         return;
@@ -444,15 +489,19 @@ static void fill_store_list(void)
     snprintf(sum, sizeof(sum), "%d apps", s_remote_n);
     set_store_status(sum, ui_color_green());
     for (int i = 0; i < s_remote_n; i++) {
+        const store_remote_t *app = store_catalog_at(i);
+        if (app == NULL) {
+            break;
+        }
         lv_obj_t *row = lv_button_create(s_store_list);
         style_row(row);
-        lv_obj_add_event_cb(row, on_remote_click, LV_EVENT_CLICKED, s_remotes[i].id);
+        lv_obj_add_event_cb(row, on_remote_click, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
         char line[80];
-        snprintf(line, sizeof(line), "%s  %s", s_remotes[i].name,
-                 s_remotes[i].installed ? "ok" : s_remotes[i].version);
+        snprintf(line, sizeof(line), "%s  %s", app->name,
+                 app->installed ? "ok" : app->version);
         lv_obj_t *lab = lv_label_create(row);
         lv_label_set_text(lab, line);
-        lv_obj_set_style_text_color(lab, s_remotes[i].installed ? ui_color_green() : ui_color_white(), 0);
+        lv_obj_set_style_text_color(lab, app->installed ? ui_color_green() : ui_color_white(), 0);
         label_left(lab);
     }
 }
@@ -1318,7 +1367,9 @@ static void on_open_store(lv_event_t *e)
 
 static void build_home(void)
 {
-    s_home = lv_screen_active();
+    /* Tela propria em vez de lv_screen_active(): a ativa neste ponto e o
+     * splash, que sera descartado logo em seguida. */
+    s_home = lv_obj_create(NULL);
     style_screen(s_home);
 
     lv_obj_t *title = lv_label_create(s_home);
@@ -1416,7 +1467,12 @@ static void build_settings(void)
     label_left(s_home_upd_lab);
 }
 
-esp_err_t ui_init(void)
+/* Luz de fundo do splash. O brilho do usuario esta em os/settings.json, que
+ * so pode ser lido depois de montar o cartao; acender em 100% aqui daria um
+ * estouro de luz a cada boot. */
+#define UI_SPLASH_BL 35
+
+esp_err_t ui_boot_begin(void)
 {
     lv_init();
 
@@ -1445,7 +1501,50 @@ esp_err_t ui_init(void)
     ESP_ERROR_CHECK(esp_timer_create(&tick_args, &tick));
     ESP_ERROR_CHECK(esp_timer_start_periodic(tick, 5000));
 
+    s_splash = lv_obj_create(NULL);
+    lv_obj_remove_style_all(s_splash);
+    lv_obj_set_style_bg_color(s_splash, ui_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_splash, LV_OPA_COVER, 0);
+
+    lv_obj_t *name = lv_label_create(s_splash);
+    lv_label_set_text(name, RIBANENSEESP_PRODUCT);
+    lv_obj_set_style_text_color(name, ui_color_white(), 0);
+    lv_obj_align(name, LV_ALIGN_CENTER, 0, -14);
+
+    s_splash_spin = lv_label_create(s_splash);
+    lv_label_set_text(s_splash_spin, "|");
+    lv_obj_set_style_text_color(s_splash_spin, ui_color_blue(), 0);
+    lv_obj_align(s_splash_spin, LV_ALIGN_CENTER, 0, 14);
+
+    lv_screen_load(s_splash);
+    lv_timer_handler();
+    board_backlight_set(UI_SPLASH_BL);
+    return ESP_OK;
+}
+
+void ui_boot_step(void)
+{
+    if (s_splash_spin == NULL) {
+        return;
+    }
+    static const char frames[] = { '|', '/', '-', '\\' };
+    s_spin_i = (uint8_t)((s_spin_i + 1) & 3);
+    const char txt[2] = { frames[s_spin_i], 0 };
+    lv_label_set_text(s_splash_spin, txt);
+    lv_timer_handler();
+}
+
+esp_err_t ui_init(void)
+{
     build_home();
+    lv_screen_load(s_home);
+    if (s_splash != NULL) {
+        /* Descarrega antes de destruir: apagar a tela ativa deixa o LVGL
+         * sem tela. */
+        lv_obj_delete(s_splash);
+        s_splash = NULL;
+        s_splash_spin = NULL;
+    }
     ESP_LOGI(TAG, "UI pronta (home + configuracoes + catalogo)");
     return ESP_OK;
 }
