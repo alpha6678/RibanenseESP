@@ -156,6 +156,7 @@ void app_main(void)
     ESP_ERROR_CHECK(err);
     (void)esp_ota_mark_app_valid_cancel_rollback();
     ESP_ERROR_CHECK(board_init());
+    board_backlight(true);
     ESP_ERROR_CHECK(ui_init());
     while (1) {
         lv_timer_handler();
