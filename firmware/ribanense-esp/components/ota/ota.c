@@ -34,7 +34,6 @@
  * derrubavam o alloc de 16749 bytes no meio do download. */
 #define OTA_TASK_STACK 12288
 #define MSG_MAX 48
-#define SLOT_MAX 0x190000u
 #define LOG_RING 10
 #define LOG_LINE 88
 
@@ -43,6 +42,11 @@
  * em MBEDTLS_ERR_SSL_ALLOC_FAILED: melhor recusar com mensagem honesta. */
 #define OTA_TLS_RECORD 16749u
 #define OTA_BLK_MIN    20000u
+
+/* Prazos da prova de saude da imagem recem-instalada. */
+#define HEALTH_GRACE_US  (20 * 1000000LL)  /* folga para o Wi-Fi subir     */
+#define HEALTH_RETRY_US  (60 * 1000000LL)  /* intervalo entre tentativas   */
+#define HEALTH_LIMIT_US (600 * 1000000LL)  /* veredito final               */
 
 static httpd_handle_t s_httpd;
 static volatile ota_state_t s_state = OTA_IDLE;
@@ -58,6 +62,9 @@ static char s_log[LOG_RING][LOG_LINE];
 static uint8_t s_log_w;
 static uint8_t s_log_n;
 static uint32_t s_blk_min;
+/* Ligado na primeira leitura do manifesto desde o boot, venha ela do probe,
+ * do ensaio ou do pull. E a prova de que esta imagem ainda se atualiza. */
+static volatile bool s_manifest_ok;
 
 static void probe_task(void *arg);
 static void rehearse_task(void *arg);
@@ -354,16 +361,17 @@ static esp_err_t on_update(httpd_req_t *req)
         httpd_resp_sendstr(req, "key");
         return ESP_OK;
     }
-    if (req->content_len <= 0 || (size_t)req->content_len > SLOT_MAX) {
-        httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_sendstr(req, "size");
-        return ESP_OK;
-    }
-
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     if (part == NULL) {
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_sendstr(req, "part");
+        return ESP_OK;
+    }
+    /* O tamanho vem da propria tabela: uma constante aqui vira mentira no dia
+     * em que as particoes mudarem, e o erro so apareceria no meio da gravacao. */
+    if (req->content_len <= 0 || (size_t)req->content_len > part->size) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_sendstr(req, "size");
         return ESP_OK;
     }
 
@@ -617,7 +625,7 @@ static esp_err_t http_stream_bin(const char *url, const char *want_sha, bool dry
             set_http_err(status, "falha no download");
             return ESP_FAIL;
         }
-        if (len > (int)SLOT_MAX) {
+        if (len > (int)part->size) {
             esp_http_client_close(cli);
             esp_http_client_cleanup(cli);
             set_state(OTA_ERR, "bin grande");
@@ -646,7 +654,7 @@ static esp_err_t http_stream_bin(const char *url, const char *want_sha, bool dry
                 blk_track("pos-ota-begin");
             }
             total += n;
-            if ((size_t)total > SLOT_MAX) {
+            if ((size_t)total > part->size) {
                 err = ESP_ERR_INVALID_SIZE;
                 break;
             }
@@ -756,6 +764,7 @@ static void probe_task(void *arg)
         vTaskDelete(NULL);
         return;
     }
+    s_manifest_ok = true;
     cJSON *root = cJSON_Parse(json);
     free(json);
     const char *ver = "";
@@ -800,6 +809,7 @@ static bool fetch_target(ota_target_t *out, bool require_newer)
         map_get_fail();
         return false;
     }
+    s_manifest_ok = true;
     cJSON *root = cJSON_Parse(json);
     free(json);
     if (root == NULL) {
@@ -917,15 +927,15 @@ esp_err_t ota_apply_file(const char *abs_path)
     }
     long sz = ftell(f);
     rewind(f);
-    if (sz <= 0 || (size_t)sz > SLOT_MAX) {
-        fclose(f);
-        return ESP_ERR_INVALID_SIZE;
-    }
 
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     if (part == NULL) {
         fclose(f);
         return ESP_ERR_NOT_FOUND;
+    }
+    if (sz <= 0 || (size_t)sz > part->size) {
+        fclose(f);
+        return ESP_ERR_INVALID_SIZE;
     }
 
     set_state(OTA_DOWNLOADING, "gravando app...");
@@ -973,24 +983,84 @@ esp_err_t ota_apply_file(const char *abs_path)
     return ESP_OK;
 }
 
+/* Depois de um OTA a imagem sobe em prova: se ninguem chamar
+ * esp_ota_mark_app_valid_cancel_rollback(), o proximo reset devolve a placa
+ * para a particao anterior. O criterio era sobreviver 30 s, e isso aprova uma
+ * imagem que boota, desenha a tela e nao consegue mais baixar nada -- que foi
+ * exatamente como a placa ficou presa antes, precisando de USB para sair.
+ *
+ * Agora a prova e ler o manifesto no GitHub: quem consegue isso consegue se
+ * atualizar de novo. Falta de rede nao conta contra a imagem, senao uma placa
+ * longe do roteador entraria em rollback sem ter defeito nenhum. */
 void ota_health_tick(void)
 {
     static int64_t start_us;
-    static bool marked;
-    if (marked) {
+    static int64_t next_try_us;
+    static bool decided;
+    static bool armed;
+    static bool had_ip;
+
+    if (decided) {
         return;
     }
+
     if (start_us == 0) {
         start_us = esp_timer_get_time();
+        const esp_partition_t *run = esp_ota_get_running_partition();
+        esp_ota_img_states_t st = ESP_OTA_IMG_UNDEFINED;
+        armed = (run != NULL && esp_ota_get_state_partition(run, &st) == ESP_OK &&
+                 st == ESP_OTA_IMG_PENDING_VERIFY);
+        if (!armed) {
+            /* Imagem ja confirmada num boot anterior, ou gravada por USB: nao
+             * ha rollback armado e nao ha nada a provar. */
+            decided = true;
+        }
         return;
     }
-    if (esp_timer_get_time() - start_us < 30 * 1000000LL) {
+
+    int64_t up = esp_timer_get_time() - start_us;
+
+    if (s_manifest_ok) {
+        if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+            ESP_LOGI(TAG, "imagem confirmada: manifesto lido em %llds", up / 1000000);
+        }
+        decided = true;
         return;
     }
-    if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
-        ESP_LOGI(TAG, "app marcado valido (health 30s)");
+
+    if (net_sta_state() == NET_STA_GOT_IP) {
+        had_ip = true;
+        int64_t now = esp_timer_get_time();
+        if (!s_pull_busy && up > HEALTH_GRACE_US && now >= next_try_us) {
+            next_try_us = now + HEALTH_RETRY_US;
+            s_pull_busy = true;
+            if (xTaskCreate(probe_task, "ota_prova", OTA_TASK_STACK, NULL, 4, NULL) != pdPASS) {
+                s_pull_busy = false;
+            }
+        }
     }
-    marked = true;
+
+    if (up < HEALTH_LIMIT_US) {
+        return;
+    }
+    decided = true;
+
+    if (!had_ip) {
+        /* Nunca houve rede. Isso nao acusa a imagem, e voltar para a anterior
+         * so trocaria por outra que tambem nao vai conectar aqui. */
+        if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+            ESP_LOGW(TAG, "imagem confirmada sem prova: nao houve rede em 10 min");
+        }
+        return;
+    }
+
+    /* Teve IP e ainda assim nao leu o manifesto em 10 minutos. A rede esta de
+     * pe e a imagem nao alcanca o GitHub: e ela que esta quebrada. Reinicia
+     * sem confirmar para o bootloader cair na fabrica. */
+    ESP_LOGE(TAG, "imagem reprovada: com IP e sem manifesto em 10 min; revertendo");
+    set_state(OTA_ERR, "revertendo...");
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    esp_restart();
 }
 
 esp_err_t ota_init(void)

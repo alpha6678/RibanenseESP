@@ -21,6 +21,27 @@ function Get-GateBaselinePath {
     return (Join-Path $ProjectRoot 'ferramentas\baseline-memoria.json')
 }
 
+<#
+  Menor particao de app na tabela que o build acabou de gerar, lida do
+  partition-table.bin -- o mesmo blob que vai para a flash. Cada entrada tem
+  32 bytes: magic 0xAA 0x50, tipo, subtipo, offset, tamanho, rotulo, flags.
+  Tipo 0 e app. Devolve 0 se nao achar nenhuma.
+#>
+function Get-SmallestAppPartition {
+    param([Parameter(Mandatory)] [string] $BuildDir)
+    $tbl = Join-Path $BuildDir 'partition_table\partition-table.bin'
+    if (-not (Test-Path -LiteralPath $tbl)) { return 0 }
+    $bytes = [IO.File]::ReadAllBytes($tbl)
+    $menor = 0
+    for ($i = 0; $i + 32 -le $bytes.Length; $i += 32) {
+        if ($bytes[$i] -ne 0xAA -or $bytes[$i + 1] -ne 0x50) { break }
+        if ($bytes[$i + 2] -ne 0) { continue }
+        $sz = [BitConverter]::ToUInt32($bytes, $i + 8)
+        if ($menor -eq 0 -or $sz -lt $menor) { $menor = $sz }
+    }
+    return $menor
+}
+
 function Get-GateBaseline {
     param([Parameter(Mandatory)] [string] $ProjectRoot)
     $path = Get-GateBaselinePath -ProjectRoot $ProjectRoot
@@ -147,14 +168,24 @@ function Invoke-HealthGates {
         -Why "Abaixo de ~60 KB livres no link nao sobra bloco contiguo para o record TLS."
 
     # --- 2. Tamanho contra o slot ---------------------------------------
+    # O slot sai da tabela de particoes construida, nao de uma constante: no dia
+    # em que a tabela mudar, um numero fixo aqui aprovaria um binario que nao
+    # cabe -- e a falha so apareceria na placa, no meio da gravacao.
     if (Test-Path -LiteralPath $bin) {
         $binLen = (Get-Item -LiteralPath $bin).Length
-        $slot = 0x190000
-        $pct = [math]::Round(100.0 * $binLen / $slot, 1)
-        Add-GateRow -Board $board -Ok ($binLen -lt ($slot * 0.92)) `
-            -Name 'Binario contra o slot OTA' `
-            -Detail "$binLen B de $slot B ($pct%)" `
-            -Why "Acima de 92% do slot nao sobra espaco para a proxima versao crescer."
+        $slot = Get-SmallestAppPartition -BuildDir (Split-Path -Parent $bin)
+        if ($slot -eq 0) {
+            Add-GateRow -Board $board -Ok $false -Name 'Binario contra o slot OTA' `
+                -Detail 'nao consegui ler a tabela de particoes construida' `
+                -Why "Sem o tamanho real do slot nao da para afirmar que a imagem cabe."
+        }
+        else {
+            $pct = [math]::Round(100.0 * $binLen / $slot, 1)
+            Add-GateRow -Board $board -Ok ($binLen -lt ($slot * 0.92)) `
+                -Name 'Binario contra o slot OTA' `
+                -Detail "$binLen B de $slot B ($pct%)" `
+                -Why "Acima de 92% do slot nao sobra espaco para a proxima versao crescer."
+        }
     }
 
     # --- 3. Chaves de sdkconfig que ja quebraram o OTA -------------------
