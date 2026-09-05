@@ -67,6 +67,9 @@ static uint32_t s_blk_min;
 /* Ligado na primeira leitura do manifesto desde o boot, venha ela do probe,
  * do ensaio ou do pull. E a prova de que esta imagem ainda se atualiza. */
 static volatile bool s_manifest_ok;
+/* Versao da copia de recuperacao no cartao, para o /status dizer se ha rede de
+ * seguranca sem que ninguem precise tirar o microSD da placa. */
+static char s_recover_ver[24];
 
 static void probe_task(void *arg);
 static void rehearse_task(void *arg);
@@ -281,12 +284,22 @@ static esp_err_t finish_ota(esp_ota_handle_t h, const esp_partition_t *part, mbe
 static esp_err_t on_status(httpd_req_t *req)
 {
     char ip[NET_IP_MAX];
-    char body[448];
+    char body[512];
+    char rec[24];
     net_sta_ip(ip, sizeof(ip));
+    /* Se ninguem gravou a copia neste boot, olha o que ja existe no cartao. */
+    if (s_recover_ver[0] != 0) {
+        strncpy(rec, s_recover_ver, sizeof(rec) - 1);
+        rec[sizeof(rec) - 1] = 0;
+    } else if (ota_recover_scan(rec, sizeof(rec)) != ESP_OK) {
+        rec[0] = 0;
+    }
+    const esp_partition_t *run = esp_ota_get_running_partition();
     snprintf(body, sizeof(body),
              "{\"product\":\"%s\",\"version\":\"%s\",\"ip\":\"%s\",\"ota\":\"%s\","
              "\"err\":\"%s\",\"http\":%d,\"errno\":%d,\"time\":%d,\"heap\":%u,\"blk\":%u,"
-             "\"blkMin\":%u,\"blkFloor\":%u,\"url\":\"%s\"}",
+             "\"blkMin\":%u,\"blkFloor\":%u,\"slot\":\"%s\",\"recuperacao\":\"%s\","
+             "\"url\":\"%s\"}",
              RIBANENSEESP_PRODUCT, RIBANENSEESP_VERSION, ip, s_msg,
              s_last_err[0] ? s_last_err : "", s_http_status, s_last_errno,
              net_time_ok() ? 1 : 0,
@@ -294,6 +307,8 @@ static esp_err_t on_status(httpd_req_t *req)
              (unsigned)blk_now(),
              (unsigned)s_blk_min,
              (unsigned)OTA_BLK_MIN,
+             run != NULL ? run->label : "?",
+             rec,
              s_last_url);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
@@ -1062,11 +1077,17 @@ static esp_err_t recover_save(void)
     if (err == ESP_OK) {
         err = storage_write_text(OTA_RECOVER_MANIFEST, json);
     }
+    /* vv aponta para dentro da arvore cJSON: copiar antes de liberar. */
+    char ver[24];
+    strncpy(ver, vv, sizeof(ver) - 1);
+    ver[sizeof(ver) - 1] = 0;
     cJSON_Delete(root);
     free(json);
 
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "copia de recuperacao %s no cartao (%u B)", vv,
+        strncpy(s_recover_ver, ver, sizeof(s_recover_ver) - 1);
+        s_recover_ver[sizeof(s_recover_ver) - 1] = 0;
+        ESP_LOGI(TAG, "copia de recuperacao %s no cartao (%u B)", ver,
                  (unsigned)meta.image_len);
     } else {
         ESP_LOGW(TAG, "copia de recuperacao falhou: %s", esp_err_to_name(err));
