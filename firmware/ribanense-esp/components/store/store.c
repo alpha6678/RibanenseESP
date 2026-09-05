@@ -13,7 +13,9 @@
 
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
+#include "esp_heap_caps.h"
 #include "esp_http_client.h"
+#include "esp_system.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,6 +23,8 @@
 
 #define TAG "store"
 #define CHUNK 1024
+/* Mesma regra do OTA: pilha grande come o record TLS de 16 KB do GitHub. */
+#define STORE_TASK_STACK 12288
 
 static volatile store_state_t s_state = STORE_IDLE;
 static char s_msg[48] = "loja";
@@ -465,82 +469,33 @@ static void refresh_installed_flags(void)
     }
 }
 
-static void catalog_task(void *arg)
+static const char *skip_bom(const char *json)
 {
-    (void)arg;
-    if (!storage_ready()) {
-        set_msg(STORE_ERR, "sem SD");
-        s_busy = false;
-        vTaskDelete(NULL);
-        return;
+    const unsigned char *p = (const unsigned char *)json;
+    if (p[0] == 0xEF && p[1] == 0xBB && p[2] == 0xBF) {
+        return json + 3;
     }
-    set_msg(STORE_BUSY, "catalogo...");
-    (void)net_time_wait(20000);
-    if (storage_mkdir(STORAGE_CACHE_DIR) != ESP_OK) {
-        ESP_LOGW(TAG, "mkdir %s errno=%d %s", STORAGE_CACHE_DIR, errno, strerror(errno));
-    }
-    char abs[160];
-    const char *rels[] = {
-        STORAGE_CACHE_DIR "/catalog.json",
-        STORAGE_OS_DIR "/catalog.json",
-        "catalog.json",
-    };
-    bool got_path = false;
-    for (int i = 0; i < 3; i++) {
-        if (storage_abs(rels[i], abs, sizeof(abs)) != ESP_OK) {
-            continue;
-        }
-        FILE *probe = fopen(abs, "wb");
-        if (probe != NULL) {
-            fclose(probe);
-            unlink(abs);
-            got_path = true;
-            break;
-        }
-        ESP_LOGW(TAG, "cache %s errno=%d %s", abs, errno, strerror(errno));
-    }
-    if (!got_path) {
-        set_msg(STORE_ERR, "sem catalogo");
-        s_busy = false;
-        vTaskDelete(NULL);
-        return;
-    }
-    unlink(abs);
-    char sha[68];
-    if (http_to_file(RIBANENSEESP_CATALOG_URL, abs, sha) != ESP_OK) {
-        set_msg(STORE_ERR, "sem catalogo");
-        s_busy = false;
-        vTaskDelete(NULL);
-        return;
-    }
+    return json;
+}
+
+static bool parse_catalog_file(const char *abs)
+{
     struct stat st;
     if (stat(abs, &st) != 0 || st.st_size <= 0 || st.st_size > CATALOG_FILE_MAX) {
-        set_msg(STORE_ERR, "catalogo invalido");
-        s_busy = false;
-        vTaskDelete(NULL);
-        return;
+        return false;
     }
     char *json = malloc((size_t)st.st_size + 1);
     if (json == NULL) {
-        set_msg(STORE_ERR, "sem RAM");
-        s_busy = false;
-        vTaskDelete(NULL);
-        return;
+        return false;
     }
     if (read_text(abs, json, (int)st.st_size + 1) < 0) {
         free(json);
-        set_msg(STORE_ERR, "sem catalogo");
-        s_busy = false;
-        vTaskDelete(NULL);
-        return;
+        return false;
     }
-    cJSON *root = cJSON_Parse(json);
+    cJSON *root = cJSON_Parse(skip_bom(json));
     free(json);
     if (root == NULL) {
-        set_msg(STORE_ERR, "catalogo invalido");
-        s_busy = false;
-        vTaskDelete(NULL);
-        return;
+        return false;
     }
     cJSON *apps = cJSON_GetObjectItem(root, "apps");
     s_cat_n = 0;
@@ -559,7 +514,7 @@ static void catalog_task(void *arg)
             const cJSON *min = cJSON_GetObjectItem(it, "minimumOsVersion");
             const cJSON *url = cJSON_GetObjectItem(it, "url");
             const cJSON *sha = cJSON_GetObjectItem(it, "sha256");
-            if (!cJSON_IsString(id)) {
+            if (!cJSON_IsString(id) || id->valuestring[0] == 0) {
                 continue;
             }
             store_remote_t *r = &s_cat[s_cat_n++];
@@ -574,7 +529,94 @@ static void catalog_task(void *arg)
     }
     cJSON_Delete(root);
     refresh_installed_flags();
-    set_msg(STORE_IDLE, s_cat_n > 0 ? "catalogo ok" : "catalogo vazio");
+    ESP_LOGI(TAG, "catalogo %d app(s)", s_cat_n);
+    return true;
+}
+
+static bool catalog_path(char *abs, size_t max)
+{
+    if (storage_mkdir(STORAGE_CACHE_DIR) != ESP_OK) {
+        ESP_LOGW(TAG, "mkdir %s errno=%d %s", STORAGE_CACHE_DIR, errno, strerror(errno));
+    }
+    const char *rels[] = {
+        STORAGE_CACHE_DIR "/catalog.json",
+        STORAGE_OS_DIR "/catalog.json",
+        "catalog.json",
+    };
+    for (int i = 0; i < 3; i++) {
+        if (storage_abs(rels[i], abs, max) != ESP_OK) {
+            continue;
+        }
+        char trial[164];
+        int n = snprintf(trial, sizeof(trial), "%s.try", abs);
+        if (n <= 0 || (size_t)n >= sizeof(trial)) {
+            continue;
+        }
+        FILE *probe = fopen(trial, "wb");
+        if (probe == NULL) {
+            ESP_LOGW(TAG, "cache %s errno=%d %s", trial, errno, strerror(errno));
+            continue;
+        }
+        fclose(probe);
+        unlink(trial);
+        return true;
+    }
+    return false;
+}
+
+static void catalog_task(void *arg)
+{
+    (void)arg;
+    if (!storage_ready()) {
+        set_msg(STORE_ERR, "sem SD");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    set_msg(STORE_BUSY, "catalogo...");
+    ESP_LOGI(TAG, "catalog heap=%u blk=%u pilha=%u",
+             (unsigned)esp_get_free_heap_size(),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+             (unsigned)uxTaskGetStackHighWaterMark(NULL));
+    (void)net_time_wait(20000);
+
+    char abs[160];
+    if (!catalog_path(abs, sizeof(abs))) {
+        set_msg(STORE_ERR, "sem catalogo");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    char tmp[164];
+    int n = snprintf(tmp, sizeof(tmp), "%s.new", abs);
+    if (n <= 0 || (size_t)n >= sizeof(tmp)) {
+        set_msg(STORE_ERR, "sem catalogo");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    unlink(tmp);
+    char sha[68];
+    if (http_to_file(RIBANENSEESP_CATALOG_URL, tmp, sha) == ESP_OK && parse_catalog_file(tmp)) {
+        unlink(abs);
+        if (rename(tmp, abs) != 0) {
+            ESP_LOGW(TAG, "rename catalogo errno=%d", errno);
+        }
+        set_msg(STORE_IDLE, s_cat_n > 0 ? "catalogo ok" : "catalogo vazio");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    unlink(tmp);
+    ESP_LOGW(TAG, "download catalogo falhou, tenta cache");
+    if (parse_catalog_file(abs)) {
+        set_msg(STORE_IDLE, s_cat_n > 0 ? "catalogo ok" : "catalogo vazio");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    set_msg(STORE_ERR, "sem catalogo");
     s_busy = false;
     vTaskDelete(NULL);
 }
@@ -662,9 +704,11 @@ void store_catalog_start(void)
         return;
     }
     s_busy = true;
-    if (xTaskCreate(catalog_task, "store_cat", 20480, NULL, 4, NULL) != pdPASS) {
+    ESP_LOGI(TAG, "inicia catalogo");
+    if (xTaskCreate(catalog_task, "store_cat", STORE_TASK_STACK, NULL, 4, NULL) != pdPASS) {
         s_busy = false;
         set_msg(STORE_ERR, "sem tarefa");
+        ESP_LOGE(TAG, "sem tarefa catalogo");
     }
 }
 
@@ -676,7 +720,7 @@ void store_install_start(const char *id)
     strncpy(s_install_id, id, sizeof(s_install_id) - 1);
     s_install_id[sizeof(s_install_id) - 1] = 0;
     s_busy = true;
-    if (xTaskCreate(install_task, "store_ins", 20480, NULL, 4, NULL) != pdPASS) {
+    if (xTaskCreate(install_task, "store_ins", STORE_TASK_STACK, NULL, 4, NULL) != pdPASS) {
         s_busy = false;
         set_msg(STORE_ERR, "sem tarefa");
     }
