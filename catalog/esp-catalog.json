@@ -14,6 +14,20 @@
       "version": "0.1.2",
       "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-sobre-0.1.2.zip",
       "sha256": "bd0eb1cef20db59b6e6c78c31bb9bd4ba8775899f31769cf554072922d87bffa"
+    },
+    {
+      "id": "com.ribanense.esp.redes",
+      "name": "Redes",
+      "publicName": "Redes",
+      "description": "Scanner IP da LAN (ARP, nome e fabricante).",
+      "category": "Rede",
+      "githubOwner": "alpha6678",
+      "githubRepo": "RibanenseESP",
+      "githubTagPrefix": "esp-redes-v",
+      "minimumOsVersion": "0.0.2",
+      "version": "0.1.0",
+      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-redes-0.1.0.zip",
+      "sha256": "dbea918e80ae01d82de8f68a3b5fab3327436f45eb8e0d721279f40c00f4a496"
     }
   ]
 }
