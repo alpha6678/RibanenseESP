@@ -627,7 +627,16 @@ function Invoke-OtaCheck {
             Write-Host "Placa ${Ip}: $($st.product) $($st.version)  heap=$($st.heap) blk=$($st.blk)"
             $boardKey = Get-SemverKey ([string] $st.version)
             if ($boardKey -and $manKey) {
-                Note ($manKey -gt $boardKey) "A placa ($($st.version)) enxerga a publicada ($($man.version)) como mais nova"
+                # Placa na mesma versao da publicada e o estado desejado, nao
+                # uma pendencia: so reprova se ela estiver a frente, porque ai
+                # o que roda na placa nao existe no GitHub.
+                if ($manKey -gt $boardKey) {
+                    Note $true "A placa ($($st.version)) enxerga a publicada ($($man.version)) como mais nova"
+                } elseif ($manKey -eq $boardKey) {
+                    Write-Host "[OK] A placa ja esta na versao publicada ($($man.version))" -ForegroundColor Green
+                } else {
+                    Note $false "A placa ($($st.version)) esta a frente da publicada ($($man.version)): essa imagem nao existe no GitHub"
+                }
             }
             # blk em repouso nao prova nada: a placa ociosa tem ~86 KB e o
             # download quebrava mesmo assim. O que decide e o menor bloco
