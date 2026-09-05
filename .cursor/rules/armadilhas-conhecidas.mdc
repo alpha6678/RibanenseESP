@@ -46,6 +46,16 @@ retorno; o gerador de NVS imprime linhas em branco.
 **Correção** Capture em variável e imprima com `Write-Host`; retorne só o valor.
 Detalhe: `.cursor/rules/cli-powershell.mdc`
 
+## 4. FatFS sem LFN recusa `*.json.tmp`
+
+**Sintoma** Brilho mostra `falha ao gravar`; o monitor não tem linha `settings:`.
+O SD está montado (`SD montado em /sdcard`).
+**Causa** `CONFIG_FATFS_LFN_NONE`: o FAT 8.3 não aceita dois pontos no nome.
+`fopen("/sdcard/os/settings.json.tmp")` falha. O mesmo vale para
+`os/wifi/networks.json.tmp` — a rede cai na flash e o cartão nunca recebe o JSON.
+**Correção** `CONFIG_FATFS_LFN_HEAP=y` em `sdkconfig.defaults`. O `flush` agora
+loga `fopen`/`rename` com `errno` se falhar de novo.
+
 ## Como crescer esta lista
 
 - Uma armadilha = uma seção aqui (sintoma, causa, correção) e, quando

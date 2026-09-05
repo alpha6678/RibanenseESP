@@ -28,7 +28,8 @@ de 1,4 MB chega em records de 16 KB. Depois da correção, em repouso:
 
 ## Regras
 
-- Tarefa que fala HTTPS usa **12 KB** de pilha (`OTA_TASK_STACK`). Pilha do
+- Tarefa que fala HTTPS usa **12 KB** de pilha (`OTA_TASK_STACK`,
+  `STORE_TASK_STACK` em `store_cat` / `store_ins`). Pilha do
   FreeRTOS sai da heap: cada KB a mais é bloco contíguo a menos.
 - `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384` é obrigatório. O GitHub ignora
   `max_fragment_length`; com 4096 o handshake cai com `-0x7200`.
