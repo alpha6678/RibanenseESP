@@ -13,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 $ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $ProjectRoot = Split-Path -Parent $ScriptRoot
 . (Join-Path $ScriptRoot 'esp-idf-env.ps1')
+. (Join-Path $ScriptRoot 'gates.ps1')
 $null = Sync-ProjectIdentity -ProjectRoot $ProjectRoot -Quiet
 
 function Show-Help {
@@ -42,8 +43,13 @@ Comandos:
   keygen                       Gera chave ECDSA P-256 em secrets/
   sign                         Assina firmware.json com o SHA atual
   verify                       Verifica a assinatura de firmware.json
+  check [--atualizar-baseline] Gates de saude sem placa: memoria estatica
+                               contra o baseline, tamanho contra o slot,
+                               sdkconfig, pilhas e coerencia de versao
   ota check [ip]               Refaz o OTA em terra: manifesto, assinatura,
                                SHA256 e versao dentro do binario publicado
+  ota ensaio <ip>              Manda a placa baixar o binario inteiro pelo
+                               GitHub e descartar; mede o menor bloco livre
   logs [ip]                    GET /log da placa na LAN
   clean [espelho]              Remove artifacts/ (e o build do espelho C:\fw)
   install [user|session]       Shim rbesp/rb no PATH
@@ -146,18 +152,6 @@ function Get-FlashOptions {
         throw "Argumento inesperado: $a"
     }
     [pscustomobject]@{ Port = $port; Erase = $erase; Zero = $zero }
-}
-
-function Get-IdfPythonExe {
-    $candidates = @()
-    if ($env:IDF_PYTHON_ENV_PATH) {
-        $candidates += (Join-Path $env:IDF_PYTHON_ENV_PATH 'Scripts\python.exe')
-    }
-    $candidates += 'C:\esp\tools\python_env\idf5.3_py3.14_env\Scripts\python.exe'
-    foreach ($c in $candidates) {
-        if ($c -and (Test-Path -LiteralPath $c)) { return $c }
-    }
-    throw "Python do ESP-IDF nao encontrado."
 }
 
 function Get-IdfRootPath {
@@ -635,7 +629,15 @@ function Invoke-OtaCheck {
             if ($boardKey -and $manKey) {
                 Note ($manKey -gt $boardKey) "A placa ($($st.version)) enxerga a publicada ($($man.version)) como mais nova"
             }
-            Note ([int] $st.blk -gt 20000) "Maior bloco livre em repouso: $($st.blk) (o record TLS do GitHub pede 16749 durante o download)"
+            # blk em repouso nao prova nada: a placa ociosa tem ~86 KB e o
+            # download quebrava mesmo assim. O que decide e o menor bloco
+            # observado durante a transferencia, e isso so o ensaio mede.
+            Write-Host "Bloco contiguo em repouso: $($st.blk) B (o record TLS pede 16749 durante o download)"
+            if ($null -ne $st.blkMin -and [int] $st.blkMin -gt 0) {
+                Note ([int] $st.blkMin -ge 24000) "Menor bloco durante o ultimo download: $($st.blkMin) B"
+            } else {
+                Write-Host "[..] Nenhum download medido ainda nesta placa. Rode: rbesp ota ensaio $Ip" -ForegroundColor Cyan
+            }
         }
     }
 
@@ -806,9 +808,29 @@ switch ($t0) {
     'keygen' { Invoke-Keygen }
     'sign' { Invoke-SignManifest }
     'verify' { Invoke-VerifyManifest }
+    { $_ -in @('check', 'conferir', 'gates') } {
+        $upd = @($rest | Where-Object { $_ -match '^-{0,2}(atualizar-baseline|update-baseline)$' }).Count -gt 0
+        Invoke-HealthGates -ProjectRoot $ProjectRoot -MirrorRoot (Get-IdfMirrorRoot) `
+            -PythonExe (Get-IdfPythonExe) -UpdateBaseline:$upd
+    }
     'ota' {
-        $ip = @($rest | Where-Object { $_ -notin @('check', 'conferir') })[0]
-        Invoke-OtaCheck -Ip $ip
+        # Subcomando de verdade: antes qualquer palavra depois de 'ota' virava IP.
+        $sub = if ($rest.Count -ge 1) { [string] $rest[0] } else { 'check' }
+        switch -Regex ($sub) {
+            '^(check|conferir)$' {
+                $ip = @($rest | Select-Object -Skip 1 | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' })[0]
+                Invoke-OtaCheck -Ip $ip
+            }
+            '^(ensaio|rehearsal|rehearse)$' {
+                $ip = @($rest | Select-Object -Skip 1 | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' })[0]
+                if (-not $ip) { throw "Uso: rbesp ota ensaio <ip-da-placa>" }
+                $base = Get-GateBaseline -ProjectRoot $ProjectRoot
+                $min = if ($base -and $base.blkMinMin) { [int] $base.blkMinMin } else { 24000 }
+                Invoke-OtaRehearsal -Ip $ip -MinBlock $min
+            }
+            '^\d{1,3}(\.\d{1,3}){3}$' { Invoke-OtaCheck -Ip $sub }
+            default { throw "Uso: rbesp ota check [ip] | rbesp ota ensaio <ip>" }
+        }
     }
     { $_ -in @('logs', 'log') } { Invoke-BoardLogs -Ip $rest[0] }
     { $_ -in @('clean', 'limpar') } {

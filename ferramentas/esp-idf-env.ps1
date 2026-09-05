@@ -8,6 +8,20 @@ function Get-IdfMirrorRoot {
     return 'C:\fw'
 }
 
+# Aqui e nao na CLI porque publish-os.ps1 e release.ps1 rodam em escopo
+# proprio e tambem precisam do python do IDF para os gates.
+function Get-IdfPythonExe {
+    $candidates = @()
+    if ($env:IDF_PYTHON_ENV_PATH) {
+        $candidates += (Join-Path $env:IDF_PYTHON_ENV_PATH 'Scripts\python.exe')
+    }
+    $candidates += 'C:\esp\tools\python_env\idf5.3_py3.14_env\Scripts\python.exe'
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path -LiteralPath $c)) { return $c }
+    }
+    throw "Python do ESP-IDF nao encontrado."
+}
+
 function Invoke-RobocopyMirror {
     param(
         [Parameter(Mandatory)] [string] $Source,

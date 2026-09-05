@@ -19,6 +19,7 @@ $ErrorActionPreference = 'Stop'
 $ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $ProjectRoot = Split-Path -Parent $ScriptRoot
 . (Join-Path $ScriptRoot 'esp-idf-env.ps1')
+. (Join-Path $ScriptRoot 'gates.ps1')
 
 $osSrc = Join-Path $ProjectRoot 'firmware\ribanense-esp'
 $sdkSrc = Join-Path $ProjectRoot 'firmware\esp-sdk'
@@ -53,6 +54,13 @@ $built = Join-Path $osMirror 'build\ribanense_esp.bin'
 if (-not (Test-Path -LiteralPath $built)) {
     throw "Binario nao gerado: $built"
 }
+
+# Gate obrigatorio: uma versao que nao passa nos testes de memoria e
+# configuracao nao vira pacote. Se ela subir, a placa que a receber pode
+# perder a capacidade de se atualizar de novo — e ai so USB resolve.
+Write-Host ""
+Invoke-HealthGates -ProjectRoot $ProjectRoot -MirrorRoot $mirror -PythonExe (Get-IdfPythonExe)
+Write-Host ""
 
 $binName = "ribanense-esp-$Version.bin"
 $binPath = Join-Path $OutputDir $binName
