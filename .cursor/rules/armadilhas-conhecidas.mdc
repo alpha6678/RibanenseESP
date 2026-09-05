@@ -23,6 +23,34 @@ inteiros e **contíguos**. Pilha de tarefa FreeRTOS sai da mesma heap:
 `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` de 16384 (4096 quebra o handshake).
 Detalhe: `.cursor/rules/firmware-heap-e-ota.mdc`
 
+## 1b. Buffer dinâmico do mbedtls reaposta o bloco a cada record
+
+**Sintoma** Mesmo `alloc(16749 bytes) failed`, agora com a pilha já em 12 KB.
+Falha intermitente: às vezes o download vai até o fim, às vezes morre no meio.
+**Causa** `CONFIG_MBEDTLS_DYNAMIC_BUFFER=y` devolve o bloco de 16 KB do RX
+entre records e o reconquista na leitura seguinte. Num `.bin` de 1,4 MB são
+centenas de apostas de 16749 bytes contíguos, com a heap fragmentada pela
+escrita na flash. Uma falha basta.
+**Correção** `CONFIG_MBEDTLS_DYNAMIC_BUFFER=n`. Medido com `rbesp ota ensaio`:
+o menor bloco durante o download subiu de **20480** para **32768**.
+**Nunca** avaliar OTA por `blk` em repouso — a placa ociosa mostra ~86000 e
+quebrava assim mesmo. Use `rbesp ota ensaio <ip>`, que mede o pior caso real.
+Detalhe: `.cursor/rules/firmware-heap-e-ota.mdc`
+
+## 1c. Vetor estático dimensionado "por garantia" come o bloco do TLS
+
+**Sintoma** OTA que funcionava para de funcionar depois de uma mudança que
+não tem nada a ver com rede.
+**Causa** `STORE_MAX_APPS` em 24 gerava três vetores estáticos de catálogo
+(26,5 KB de DRAM), e um deles era cópia literal do outro: `s_remotes` na UI
+recebia um `memcpy` de `s_cat`. Isso sai da mesma DRAM que precisa ceder um
+vão contíguo de 16749 bytes.
+**Correção** Teto em 8 e leitura direta por `store_catalog_count()` /
+`store_catalog_at()`, sem segunda cópia: **20712 bytes** de volta.
+**Regra** `rbesp check` compara a DRAM estática com
+`ferramentas/baseline-memoria.json` e reprova quem passar do teto. Subir o
+teto exige ensaio verde em hardware.
+
 ## 2. Versão antiga compilada dentro do binário
 
 **Sintoma** A placa recebe o OTA e continua se anunciando na versão anterior,

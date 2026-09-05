@@ -26,6 +26,30 @@ O manifesto (336 bytes) passava porque cabe em records pequenos. Só o `.bin`
 de 1,4 MB chega em records de 16 KB. Depois da correção, em repouso:
 `blk 81920`.
 
+## O caso de 2026-09-05 (0.3.9): o buffer dinâmico do mbedtls
+
+Mesma assinatura de erro, causa diferente. `CONFIG_MBEDTLS_DYNAMIC_BUFFER=y`
+**devolve** o bloco de 16 KB do RX entre um record e o próximo, e o
+reconquista na leitura seguinte. Num `.bin` de 1,4 MB isso é uma aposta de
+16749 bytes contíguos **por record**, centenas de vezes, com a heap já
+fragmentada pela escrita na flash. Basta uma dar errado.
+
+Medido com `rbesp ota ensaio`, mesma imagem, só a chave mudando:
+
+| `CONFIG_MBEDTLS_DYNAMIC_BUFFER` | menor bloco no download | margem |
+|---|---|---|
+| `y` | 20480 | 3731 |
+| `n` | 32768 | 16019 |
+
+Fica **desligado**. Ele foi feito para muitas conexões curtas, não para uma
+conexão longa baixando megabytes. Desligado, o bloco é reservado uma única
+vez no handshake — quando a heap ainda está inteira — e fica até o fim.
+
+No mesmo dia, três vetores estáticos de catálogo dimensionados para 24 apps
+custavam 26,5 KB de DRAM e um deles era cópia literal do outro
+(`s_remotes` = `memcpy` de `s_cat`). Teto em 8 e acesso direto por
+`store_catalog_at()`: **20712 bytes** de volta.
+
 ## Regras
 
 - Tarefa que fala HTTPS usa **12 KB** de pilha (`OTA_TASK_STACK`,
@@ -38,19 +62,42 @@ de 1,4 MB chega em records de 16 KB. Depois da correção, em repouso:
   o certificado do par depois do handshake, e guardá-lo custa ~4 KB.
 - Antes de alocar buffer novo no caminho de rede, olhe **`blk`**, não `heap`.
   Durante o download precisa sobrar mais de ~17000 contíguos.
+- Meça `blk` com `MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT`. Só `MALLOC_CAP_8BIT`
+  conta regiões que o TLS não pode usar e dá um número otimista demais.
 - Baixar o binário em HTTP puro não é opção: `raw.githubusercontent.com`
   responde 301 para HTTPS.
 
 ## Diagnóstico sem cabo
 
 ```bat
-rbesp logs 192.168.5.188
+rbesp check                       :: sem placa: memória, sdkconfig, pilhas
+rbesp ota ensaio 192.168.1.110    :: na placa: baixa 1,4 MB e mede o pior caso
+rbesp logs 192.168.1.110
 ```
 
-`GET /status` traz `heap` (total livre) e `blk` (maior bloco). `ota.c` loga
-`download heap= blk= pilha=` ao abrir a conexão do binário; `pilha` é a folga
-mínima da tarefa **em bytes** (o IDF diverge do FreeRTOS baunilha, que devolve
-palavras). Se `pilha` chegar perto de zero, aumente — mas então reveja `blk`.
+**`blk` em repouso não prova nada.** A placa ociosa mostra ~86000 e o
+download quebrava do mesmo jeito. O número que decide é o menor bloco visto
+**durante** a transferência: é isso que `blkMin` no `/status` guarda e o que
+`rbesp ota ensaio` cobra (piso em `ferramentas/baseline-memoria.json`).
+
+O ensaio (`GET /rehearse`) baixa o binário publicado inteiro, confere o
+sha256 e descarta: não apaga o slot nem troca o boot, então pode rodar à
+vontade. Ele roda com o httpd no ar e o cartão montado — menos RAM livre que
+o pull real — de propósito: ensaio verde é piso, não palpite.
+
+`ota.c` loga `blk <etapa>=` em pós-handshake, pós-headers e pós-ota-begin.
+`pilha` é a folga mínima da tarefa **em bytes** (o IDF diverge do FreeRTOS
+baunilha, que devolve palavras). Se chegar perto de zero, aumente — mas então
+reveja `blk`.
+
+## Ordem das operações no download
+
+`esp_ota_begin()` apaga o slot inteiro e segura o cache da flash por dezenas
+de ms. Chamá-lo **antes** da primeira leitura punha esse apagamento
+exatamente na janela em que o mbedtls tentava reservar o record. Hoje o
+`esp_ota_begin` só acontece depois que o primeiro chunk já está em RAM.
+Efeito colateral bom: download que morre no primeiro byte não apaga mais o
+slot, e a imagem anterior continua íntegra.
 
 ## Recuperar a placa sem USB
 
