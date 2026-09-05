@@ -34,6 +34,25 @@ return $out
 Ao consumir um valor que veio de função, prefira `[System.IO.Path]::GetFileName([string] $x)`
 a `Split-Path`: falha de tipo aparece na hora, não como bind error.
 
+## Variável local com o nome do parâmetro
+
+Nome de variável no PowerShell **não distingue caixa**: dentro de uma função
+com `param([switch] $Mirror)`, escrever `$mirror = Get-IdfMirrorRoot` atribui
+ao próprio parâmetro e estoura na hora:
+
+```
+Cannot convert the "C:\fw" value of type "System.String" to type
+"System.Management.Automation.SwitchParameter".
+```
+
+Aconteceu em `Invoke-Clean`. Dê nome diferente ao local (`$mirrorRoot`).
+
+## Literal hexadecimal de 8 dígitos vira Int32 negativo
+
+`0xABCD5432` é lido como `-1412606926`. Comparar com um `[uint32]` de
+`[BitConverter]::ToUInt32(...)` nunca casa — e o `catch` em volta esconde o
+erro. Escreva `0xABCD5432L`.
+
 ## Caminho do usuário tem acento
 
 `C:\Users\Usuário\...` quebra em dois lugares diferentes:

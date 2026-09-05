@@ -667,9 +667,11 @@ function Invoke-Clean {
     }
     if (-not $Mirror) { return }
     # Build corrompido do ninja so sai assim: ele nao consegue nem se regerar.
-    $mirror = Get-IdfMirrorRoot
-    $builds = @(Join-Path $mirror 'ribanense-esp\build')
-    $appsDir = Join-Path $mirror 'apps'
+    # Nome diferente de $Mirror: variavel do PowerShell nao distingue caixa e
+    # a atribuicao cairia no proprio [switch] do parametro.
+    $mirrorRoot = Get-IdfMirrorRoot
+    $builds = @(Join-Path $mirrorRoot 'ribanense-esp\build')
+    $appsDir = Join-Path $mirrorRoot 'apps'
     if (Test-Path -LiteralPath $appsDir) {
         $builds += @(Get-ChildItem -LiteralPath $appsDir -Directory -ErrorAction SilentlyContinue |
             ForEach-Object { Join-Path $_.FullName 'build' })
