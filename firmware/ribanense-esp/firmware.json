@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "product": "RibanenseESP",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "minFlashMb": 4,
-  "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/firmware/ribanense-esp/dist/ribanense-esp-0.3.7.bin",
-  "sha256": "778ad204d20138dd0da7e26e563f7979a61ac0101954c8036d0466a04c6e1406",
-  "sig": "3045022100fe736b6469529793ea3136e05b896b0a57806bb1c47926686c4faed817310ba3022066b48e6a0169baf0eababc3be755873139beef678439d8bf427b8f72eff36b30"
+  "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/firmware/ribanense-esp/dist/ribanense-esp-0.3.8.bin",
+  "sha256": "6340f91594d080a670fae1c5e951c77ba363a1150f7ffb789b7f7a28b1eaad9b",
+  "sig": "3045022100be88ef38eb637200904d8c99677cc752cb7c157208358f81ee64ad338567aac902206b09082e5bd5ab007b9daff9b7c1d797d9a09e6244bdeca258c8bd929968aa57"
 }
 
