@@ -327,7 +327,8 @@ static void store_poll(void)
     const char *msg = store_message();
     if (s_store_status != NULL &&
         (st == STORE_BUSY || st == STORE_ERR ||
-         (st == STORE_IDLE && (strcmp(msg, "instalado") == 0 || strcmp(msg, "catalogo ok") == 0)))) {
+         (st == STORE_IDLE && (strcmp(msg, "instalado") == 0 || strcmp(msg, "catalogo ok") == 0 ||
+                               strcmp(msg, "catalogo vazio") == 0)))) {
         lv_color_t color = ui_color_white();
         if (st == STORE_ERR) {
             color = ui_color_red();
@@ -338,7 +339,7 @@ static void store_poll(void)
     }
     if (st != s_store_seen) {
         s_store_seen = st;
-        if (st == STORE_IDLE) {
+        if (st == STORE_IDLE || st == STORE_ERR) {
             refresh_home_apps();
             if (s_store_live && s_store != NULL) {
                 fill_store_list();
