@@ -4,6 +4,7 @@
 #include "net.h"
 #include "ota.h"
 #include "ribanense_esp_version.h"
+#include "settings.h"
 #include "shell.h"
 #include "store.h"
 #include "ui_palette.h"
@@ -63,11 +64,17 @@ static int s_home_app_n;
 static store_remote_t s_remotes[STORE_MAX_APPS];
 static int s_remote_n;
 static store_state_t s_store_seen = STORE_IDLE;
+static lv_obj_t *s_bright;
+static lv_obj_t *s_bright_lab;
+static lv_obj_t *s_bright_status;
+static uint8_t s_bright_draft = 100;
 
 static void show_wifi(void);
 static void show_home(void);
 static void show_settings(void);
 static void build_settings(void);
+static void show_brightness(void);
+static void destroy_brightness(void);
 static void show_store(void);
 static void show_pass(const char *ssid, uint8_t auth);
 static void wifi_poll(void);
@@ -1073,6 +1080,7 @@ static void show_home(void)
     lv_screen_load(s_home);
     destroy_pass();
     destroy_store();
+    destroy_brightness();
     if (s_wifi) {
         lv_obj_t *old = s_wifi;
         s_wifi = NULL;
@@ -1085,12 +1093,175 @@ static void show_home(void)
     refresh_home_apps();
 }
 
+static void refresh_bright_lab(void)
+{
+    if (s_bright_lab == NULL) {
+        return;
+    }
+    char text[8];
+    snprintf(text, sizeof(text), "%u%%", (unsigned)s_bright_draft);
+    lv_label_set_text(s_bright_lab, text);
+}
+
+static void set_bright_status(const char *msg, lv_color_t color)
+{
+    if (s_bright_status == NULL) {
+        return;
+    }
+    lv_label_set_text(s_bright_status, msg);
+    lv_obj_set_style_text_color(s_bright_status, color, 0);
+}
+
+static void destroy_brightness(void)
+{
+    if (s_bright) {
+        lv_obj_t *old = s_bright;
+        s_bright = NULL;
+        s_bright_lab = NULL;
+        s_bright_status = NULL;
+        lv_obj_delete_async(old);
+    }
+}
+
+static void on_bright_back(lv_event_t *e)
+{
+    (void)e;
+    board_backlight_set(settings_brightness());
+    destroy_brightness();
+    show_settings();
+}
+
+static void on_bright_minus(lv_event_t *e)
+{
+    (void)e;
+    if (s_bright_draft <= 10) {
+        return;
+    }
+    s_bright_draft = (uint8_t)(s_bright_draft - 10);
+    board_backlight_set(s_bright_draft);
+    refresh_bright_lab();
+    set_bright_status("", ui_color_white());
+}
+
+static void on_bright_plus(lv_event_t *e)
+{
+    (void)e;
+    if (s_bright_draft >= 100) {
+        return;
+    }
+    s_bright_draft = (uint8_t)(s_bright_draft + 10);
+    board_backlight_set(s_bright_draft);
+    refresh_bright_lab();
+    set_bright_status("", ui_color_white());
+}
+
+static void on_bright_save(lv_event_t *e)
+{
+    (void)e;
+    esp_err_t err = settings_set_brightness(s_bright_draft);
+    if (err != ESP_OK) {
+        set_bright_status(err == ESP_ERR_INVALID_STATE ? "sem cartao" : "falha ao gravar",
+                          ui_color_red());
+        return;
+    }
+    destroy_brightness();
+    show_settings();
+}
+
+static void build_brightness(void)
+{
+    s_bright = lv_obj_create(NULL);
+    style_screen(s_bright);
+
+    lv_obj_t *bar = lv_obj_create(s_bright);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_width(bar, lv_pct(100));
+    lv_obj_set_height(bar, 36);
+    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(bar, 8, 0);
+
+    lv_obj_t *back = lv_button_create(bar);
+    style_row(back);
+    lv_obj_set_width(back, 72);
+    lv_obj_set_height(back, 32);
+    lv_obj_add_event_cb(back, on_bright_back, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, LV_SYMBOL_LEFT " voltar");
+    lv_obj_set_style_text_color(bl, ui_color_white(), 0);
+    lv_obj_center(bl);
+
+    lv_obj_t *title = lv_label_create(bar);
+    lv_label_set_text(title, "Brilho");
+    lv_obj_set_style_text_color(title, ui_color_blue(), 0);
+
+    s_bright_lab = lv_label_create(s_bright);
+    lv_obj_set_style_text_color(s_bright_lab, ui_color_white(), 0);
+    refresh_bright_lab();
+
+    lv_obj_t *row = lv_obj_create(s_bright);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_width(row, lv_pct(100));
+    lv_obj_set_height(row, ROW_H);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 4, 0);
+
+    lv_obj_t *minus = lv_button_create(row);
+    style_row(minus);
+    lv_obj_set_flex_grow(minus, 1);
+    lv_obj_set_width(minus, 0);
+    lv_obj_add_event_cb(minus, on_bright_minus, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *ml = lv_label_create(minus);
+    lv_label_set_text(ml, "menos");
+    lv_obj_set_style_text_color(ml, ui_color_white(), 0);
+    lv_obj_center(ml);
+
+    lv_obj_t *plus = lv_button_create(row);
+    style_row(plus);
+    lv_obj_set_flex_grow(plus, 1);
+    lv_obj_set_width(plus, 0);
+    lv_obj_add_event_cb(plus, on_bright_plus, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *pl = lv_label_create(plus);
+    lv_label_set_text(pl, "mais");
+    lv_obj_set_style_text_color(pl, ui_color_white(), 0);
+    lv_obj_center(pl);
+
+    lv_obj_t *save = lv_button_create(s_bright);
+    style_row(save);
+    lv_obj_set_style_bg_color(save, ui_color_blue(), 0);
+    lv_obj_set_height(save, 40);
+    lv_obj_add_event_cb(save, on_bright_save, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *sl = lv_label_create(save);
+    lv_label_set_text(sl, "Salvar");
+    lv_obj_set_style_text_color(sl, ui_color_white(), 0);
+    lv_obj_center(sl);
+
+    s_bright_status = lv_label_create(s_bright);
+    lv_label_set_text(s_bright_status, "");
+    lv_obj_set_style_text_color(s_bright_status, ui_color_white(), 0);
+}
+
+static void show_brightness(void)
+{
+    s_wifi_live = false;
+    s_scan_pending = false;
+    (void)net_scan_stop();
+    destroy_pass();
+    destroy_brightness();
+    s_bright_draft = settings_brightness();
+    board_backlight_set(s_bright_draft);
+    build_brightness();
+    lv_screen_load(s_bright);
+}
+
 static void show_settings(void)
 {
     s_wifi_live = false;
     s_scan_pending = false;
     (void)net_scan_stop();
     destroy_pass();
+    destroy_brightness();
     if (s_settings == NULL) {
         build_settings();
     }
@@ -1119,6 +1290,12 @@ static void on_open_wifi(lv_event_t *e)
 {
     (void)e;
     show_wifi();
+}
+
+static void on_open_brightness(lv_event_t *e)
+{
+    (void)e;
+    show_brightness();
 }
 
 static void on_open_ota(lv_event_t *e)
@@ -1220,6 +1397,14 @@ static void build_settings(void)
     lv_label_set_text(s_home_wifi_lab, LV_SYMBOL_WIFI "  Wi-Fi");
     lv_obj_set_style_text_color(s_home_wifi_lab, ui_color_white(), 0);
     label_left(s_home_wifi_lab);
+
+    lv_obj_t *br = lv_button_create(list);
+    style_row(br);
+    lv_obj_add_event_cb(br, on_open_brightness, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *brl = lv_label_create(br);
+    lv_label_set_text(brl, "Brilho");
+    lv_obj_set_style_text_color(brl, ui_color_white(), 0);
+    label_left(brl);
 
     lv_obj_t *upd = lv_button_create(list);
     style_row(upd);

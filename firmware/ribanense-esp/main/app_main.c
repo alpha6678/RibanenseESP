@@ -3,6 +3,7 @@
 #include "nvs_flash.h"
 #include "ota.h"
 #include "ribanense_esp_version.h"
+#include "settings.h"
 #include "storage.h"
 #include "ui.h"
 
@@ -26,6 +27,8 @@ void app_main(void)
 
     ESP_ERROR_CHECK(board_init());
     (void)storage_mount();
+    (void)settings_load();
+    board_backlight_set(settings_brightness());
     if (net_init() != ESP_OK) {
         ESP_LOGE(TAG, "Wi-Fi nao iniciou; scan fica indisponivel");
     } else {
