@@ -95,12 +95,14 @@ Calibração medida nesta E32R28T-1 (4 cantos + centro, 2026-09-03), em
 | F3 | Pull `firmware.json` (HTTPS + SHA256 + ECDSA) + rollback real |
 
 Após `GOT_IP` a UI volta à home. Em **Configurações** aparecem o ID
-`RBN-XXXXXX` (MAC), a senha LAN desta unidade, o item Wi-Fi (IP) e
-**Atualizar** (pull). SoftAP sozinho não alcança o GitHub.
+`RBN-XXXXXX` (MAC), a senha LAN desta unidade, o item Wi-Fi (IP),
+**Brilho** (10–100%, passo 10; Voltar cancela, Salvar grava no cartão)
+e **Atualizar** (pull). SoftAP sozinho não alcança o GitHub.
 
 SSID/senha ficam no microSD em `/sdcard/os/wifi/networks.json` (até 8
 redes; `last` é a última que ganhou IP). A flash do Wi-Fi continua como
-rede de segurança. No boot o STA espera `WIFI_EVENT_STA_START` e
+rede de segurança. O brilho fica em `/sdcard/os/settings.json` e volta
+depois do reboot. No boot o STA espera `WIFI_EVENT_STA_START` e
 reconecta; se o SD ainda não montou ou o AP sumiu, um timer com backoff
 (5/15/30/60 s) tenta de novo — com a tela fechada também. **Esquecer**
 apaga a entrada e desconecta.
@@ -142,7 +144,7 @@ antigo não vê releases novos — primeiro flash por USB
 O OS é o launcher da placa. Apps nativos (projetos IDF em
 `firmware/apps/`) instalam-se em `/sdcard/apps/<id>/` a partir de
 [`catalog/esp-catalog.json`](../catalog/esp-catalog.json). A home lista o
-que já está no cartão; **Catalogo** baixa e instala. Abrir um app grava
+que já está no cartão (até 24 na UI); **Catalogo** baixa e instala. Abrir um app grava
 o `.bin` no slot OTA inativo e reinicia; **Voltar** devolve o boot ao OS
 (NVS `rib_os`/`slot`). Contrato: [`ESP_APP_SDK.md`](ESP_APP_SDK.md).
 

@@ -57,9 +57,12 @@ antes de recriar estas pastas):
 | Pasta | Uso |
 |-------|-----|
 | `/sdcard/apps/<id>/` | App instalado (`app.bin` + `app.json`) |
-| `/sdcard/os/` | Dados do OS (Wi-Fi em `os/wifi/`) |
-| `/sdcard/tmp/` | Download e unzip (`pkg.zip`) |
+| `/sdcard/os/` | Dados do OS (Wi-Fi em `os/wifi/`, brilho em `os/settings.json`) |
+| `/sdcard/tmp/` | Download e unzip (`pkg.zip`); rascunho do Scanner IP em `tmp/redes/` |
 | `/sdcard/cache/` | JSON do catálogo (`catalog.json`) |
+
+O OS lista até **24** apps na home e no Catálogo (`STORE_MAX_APPS`). Isso é teto de
+metadados na UI, não de pastas no cartão. A listagem lê um `app.json` por vez.
 
 A placa baixa o zip para `tmp`, confere SHA256 e extrai para `apps/<id>/`.
 O corpo HTTP vai em chunks para o cartão; o ESP32 não usa o SD como RAM.
