@@ -115,8 +115,9 @@ manifesto assinado. No 0.4.7, já na home: `imagem confirmada: manifesto
 lido em 20s` e só então `anel ja tem 0.4.7`.
 **Correção** Splash segura (`UI montada, splash ate o ponto de restauracao`)
 até `ota_recover_boot_done()`: par completo ou falha de fato (sem cartão,
-sem rede, cópia). Textos: `provando imagem...`, `aguardando rede...`,
-`gravando ponto...`.
+sem rede, cópia). Textos: `conferindo o sistema...`, `conectando a rede...`,
+`guardando uma copia...`. Barra e legenda ficam no bloco da marca (240 px,
+centro); status solto alinhado no `|` crescia para a direita depois do C.
 **Medido no 0.4.8** splash em 1422 ms; `imagem confirmada` em 20 s;
 `ponto de restauracao 0.4.8 no cartao (1424208 B)` em 29573 ms;
 `UI pronta` em 29585 ms. Se o ponto já existe, a splash some na hora.

@@ -7,7 +7,7 @@
  * do usuario mora no cartao, que ainda nao foi montado. A marca fica no
  * minimo 3 s; o trabalho do boot nao espera. */
 esp_err_t ui_boot_begin(void);
-/* Avanca o giro do splash. Uma chamada por etapa concluida — o desenho
+/* Avanca a barra do splash. Uma chamada por etapa concluida — o desenho
  * anda porque o boot andou, nao porque um timer disparou. */
 void ui_boot_step(void);
 /* Monta as telas. Sai do splash depois do ponto de restauracao desta

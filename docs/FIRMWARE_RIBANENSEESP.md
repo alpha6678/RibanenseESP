@@ -4,7 +4,7 @@ Casca de firmware da placa E32R28T-1 (ESP32-32E 2,8"). Vive em
 [`firmware/ribanense-esp/`](../firmware/ribanense-esp/). Este repositório
 é só firmware (ESP-IDF).
 
-Versão atual: **0.4.8** em [`firmware/ribanense-esp/version.json`](../firmware/ribanense-esp/version.json).
+Versão atual: **0.4.9** em [`firmware/ribanense-esp/version.json`](../firmware/ribanense-esp/version.json).
 Tag de release: `ribanense-esp-v<semver>`.
 
 O dossiê da unidade (fotos, pinout, o que veio na caixa) continua em
@@ -56,9 +56,12 @@ por [`ferramentas/logo-a4.py`](../ferramentas/logo-a4.py). Sem decoder
 PNG/SVG/RLE/LZ4 — esses materializam o quadro na heap (vão do TLS).
 
 Splash: fundo preto, C ~160 px centrado (40 px de ar nas laterais), nome
-`celer` em Montserrat 24, giro e status embaixo. Fica **no mínimo 3 s** em
-todo ligar; o boot (cartão, Wi-Fi) não espera. Sai quando o ponto de
-restauração já decidiu **e** o relógio passou.
+`celer` em Montserrat 24, barra (`lv_bar`) e texto pequeno no mesmo eixo
+central. A barra anda nos passos reais do boot (cartão, ajustes, rede) e
+na cópia do ponto; sem giro ASCII. Fica **no mínimo 3 s** em todo ligar;
+o boot não espera. Sai quando o ponto de restauração já decidiu **e** o
+relógio passou. Fora do boot (atualizar, restaurar, catálogo) a espera é
+só a barra e o texto, centrados, sem a marca.
 
 Sem animações nem elevação de tecla. Teclas pretas com borda e letra
 brancas; no toque só a borda da tecla fica amarela. Redesenho da tela no

@@ -1967,11 +1967,11 @@ const char *ota_recover_boot_text(void)
 {
     switch (s_recover_boot) {
     case RECBOOT_PEND_PROVA:
-        return "provando imagem...";
+        return "conferindo o sistema...";
     case RECBOOT_PEND_NET:
-        return "aguardando rede...";
+        return "conectando a rede...";
     case RECBOOT_PEND_COPIA:
-        return "gravando ponto...";
+        return "guardando uma copia...";
     default:
         return "";
     }

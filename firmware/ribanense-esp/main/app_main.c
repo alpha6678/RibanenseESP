@@ -28,8 +28,8 @@ void app_main(void)
     ESP_ERROR_CHECK(board_init());
 
     /* Splash antes das etapas lentas: montar o cartao e subir o Wi-Fi levam
-     * cerca de um segundo, e ate aqui a tela ficava apagada. O giro anda uma
-     * vez por etapa concluida, entao ele para se alguma etapa travar. */
+     * cerca de um segundo, e ate aqui a tela ficava apagada. A barra anda uma
+     * vez por etapa concluida, entao ela para se alguma etapa travar. */
     ESP_ERROR_CHECK(ui_boot_begin());
 
     (void)storage_mount();

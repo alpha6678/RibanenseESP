@@ -34,12 +34,21 @@
 #define SCAN_PERIOD_US 1000000
 #define UI_SPLASH_HOLD_US 3000000
 #define UI_SPLASH_GAP     14
+#define UI_METER_W        120
+#define UI_METER_H        8
+#define UI_CAP_W          220
+#define UI_BOOT_STEPS     4
+#define WAIT_BACK_HOME    0
+#define WAIT_BACK_SET     1
+#define WAIT_BACK_REC     2
+#define WAIT_BACK_STORE   3
 
 static const char *TAG = "ui";
 static lv_display_t *s_disp;
 static lv_obj_t *s_splash;
-static lv_obj_t *s_splash_spin;
+static lv_obj_t *s_wait;
 static uint8_t s_spin_i;
+static uint8_t s_wait_back;
 static lv_obj_t *s_home;
 static lv_obj_t *s_settings;
 static lv_obj_t *s_wifi;
@@ -203,6 +212,204 @@ static void label_text(lv_obj_t *lab, const char *text)
     if (strcmp(lv_label_get_text(lab), text) != 0) {
         lv_label_set_text(lab, text);
     }
+}
+
+/* Barra + legenda: no boot ficam no bloco da marca (mesmo eixo). Fora do
+ * boot e so isso, centrado — sem logo e sem giro. Sem lv_anim. */
+static void style_meter_bar(lv_obj_t *bar)
+{
+    lv_obj_set_size(bar, UI_METER_W, UI_METER_H);
+    lv_bar_set_range(bar, 0, UI_BOOT_STEPS);
+    lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, ui_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_border_color(bar, ui_color_blue(), LV_PART_MAIN);
+    lv_obj_set_style_border_width(bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(bar, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, ui_color_blue(), LV_PART_INDICATOR);
+    lv_obj_set_style_radius(bar, 0, LV_PART_INDICATOR);
+}
+
+static void style_meter_cap(lv_obj_t *lab)
+{
+    lv_obj_set_width(lab, UI_CAP_W);
+    lv_label_set_long_mode(lab, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(lab, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(lab, ui_color_white(), 0);
+}
+
+static void meter_apply(lv_obj_t *bar, lv_obj_t *cap, int32_t value, const char *text)
+{
+    if (bar != NULL && lv_bar_get_value(bar) != value) {
+        lv_bar_set_value(bar, value, LV_ANIM_OFF);
+    }
+    label_text(cap, text);
+}
+
+static const char *boot_step_text(uint8_t step)
+{
+    switch (step) {
+    case 1:
+        return "lendo o cartao...";
+    case 2:
+        return "carregando ajustes...";
+    case 3:
+        return "preparando a rede...";
+    default:
+        return "iniciando...";
+    }
+}
+
+static lv_obj_t *splash_box(void)
+{
+    return s_splash != NULL ? lv_obj_get_child(s_splash, 0) : NULL;
+}
+
+static void splash_apply(void)
+{
+    lv_obj_t *box = splash_box();
+    if (box == NULL) {
+        return;
+    }
+    const char *rec = ota_recover_boot_text();
+    int32_t v = s_spin_i;
+    const char *t = boot_step_text(s_spin_i);
+    if (rec != NULL && rec[0] != 0) {
+        t = rec;
+        v = (strcmp(rec, "guardando uma copia...") == 0) ? UI_BOOT_STEPS : 3;
+    }
+    if (s_home != NULL && ota_recover_boot_done()) {
+        v = UI_BOOT_STEPS;
+        if (rec == NULL || rec[0] == 0) {
+            t = "pronto...";
+        }
+    }
+    meter_apply(lv_obj_get_child(box, 2), lv_obj_get_child(box, 3), v, t);
+}
+
+static const char *wait_ota_text(ota_state_t st, const char *msg)
+{
+    if (msg == NULL) {
+        msg = "";
+    }
+    if (st == OTA_CHECKING) {
+        return "procurando atualizacao...";
+    }
+    if (st == OTA_OK_REBOOT) {
+        return "pronto, reiniciando...";
+    }
+    if (st == OTA_DOWNLOADING) {
+        if (strncmp(msg, "gravando app", 12) == 0) {
+            return "gravando o app...";
+        }
+        if (strncmp(msg, "gravando", 8) == 0) {
+            return "gravando na placa...";
+        }
+        if (strcmp(msg, "baixando...") == 0) {
+            return "baixando a versao...";
+        }
+    }
+    return msg;
+}
+
+static const char *wait_store_text(const char *msg)
+{
+    if (msg != NULL && strcmp(msg, "catalogo...") == 0) {
+        return "carregando o catalogo...";
+    }
+    if (msg != NULL && strcmp(msg, "baixando...") == 0) {
+        return "baixando o app...";
+    }
+    if (msg != NULL && strcmp(msg, "instalando...") == 0) {
+        return "instalando o app...";
+    }
+    return msg != NULL ? msg : "";
+}
+
+static void wait_hide(void)
+{
+    if (s_wait == NULL) {
+        return;
+    }
+    lv_obj_t *old = s_wait;
+    s_wait = NULL;
+    lv_obj_t *back = s_home;
+    if (s_wait_back == WAIT_BACK_REC && s_recover != NULL) {
+        back = s_recover;
+    } else if (s_wait_back == WAIT_BACK_STORE && s_store != NULL) {
+        back = s_store;
+    } else if (s_wait_back == WAIT_BACK_SET && s_settings != NULL) {
+        back = s_settings;
+    }
+    if (back == NULL) {
+        back = s_home;
+    }
+    if (back != NULL) {
+        lv_screen_load(back);
+    }
+    lv_obj_delete(old);
+}
+
+static void wait_show(const char *text, int32_t value)
+{
+    if (s_splash != NULL) {
+        return;
+    }
+    if (s_wait == NULL) {
+        lv_obj_t *cur = lv_screen_active();
+        if (cur == s_recover) {
+            s_wait_back = WAIT_BACK_REC;
+        } else if (cur == s_store) {
+            s_wait_back = WAIT_BACK_STORE;
+        } else if (cur == s_settings) {
+            s_wait_back = WAIT_BACK_SET;
+        } else {
+            s_wait_back = WAIT_BACK_HOME;
+        }
+
+        s_wait = lv_obj_create(NULL);
+        lv_obj_remove_style_all(s_wait);
+        lv_obj_set_style_bg_color(s_wait, ui_color_black(), 0);
+        lv_obj_set_style_bg_opa(s_wait, LV_OPA_COVER, 0);
+        lv_obj_set_flex_flow(s_wait, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(s_wait, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_row(s_wait, 8, 0);
+
+        lv_obj_t *bar = lv_bar_create(s_wait);
+        style_meter_bar(bar);
+        lv_obj_t *cap = lv_label_create(s_wait);
+        style_meter_cap(cap);
+        lv_label_set_text(cap, "");
+        lv_screen_load(s_wait);
+    }
+    meter_apply(lv_obj_get_child(s_wait, 0), lv_obj_get_child(s_wait, 1), value, text);
+}
+
+static void wait_poll(void)
+{
+    if (s_splash != NULL) {
+        return;
+    }
+    const ota_state_t ot = ota_state();
+    if (ot == OTA_CHECKING || ot == OTA_DOWNLOADING || ot == OTA_OK_REBOOT) {
+        int32_t v = 2;
+        if (ot == OTA_CHECKING) {
+            v = 1;
+        } else if (ot == OTA_OK_REBOOT) {
+            v = UI_BOOT_STEPS;
+        } else if (strncmp(ota_message(), "gravando", 8) == 0) {
+            v = 3;
+        }
+        wait_show(wait_ota_text(ot, ota_message()), v);
+        return;
+    }
+    if (store_state() == STORE_BUSY) {
+        wait_show(wait_store_text(store_message()), 2);
+        return;
+    }
+    wait_hide();
 }
 
 /* Estilos do teclado: estaticos e compartilhados.
@@ -1681,14 +1888,17 @@ esp_err_t ui_boot_begin(void)
     lv_obj_set_style_bg_color(s_splash, ui_color_black(), 0);
     lv_obj_set_style_bg_opa(s_splash, LV_OPA_COVER, 0);
 
-    /* Bloco C + nome no centro. O C tem 160 px; sobram 40 px de cada lado. */
+    /* Bloco de 240 px: marca, nome, barra e legenda no mesmo eixo. O giro
+     * e o status soltos alinhavam no "|" e, com texto longo, cresciam para
+     * a direita — pareciam colados a esquerda depois do C. */
     lv_obj_t *block = lv_obj_create(s_splash);
     lv_obj_remove_style_all(block);
-    lv_obj_set_size(block, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_width(block, 240);
+    lv_obj_set_height(block, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(block, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(block, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(block, UI_SPLASH_GAP, 0);
-    lv_obj_align(block, LV_ALIGN_CENTER, 0, -28);
+    lv_obj_align(block, LV_ALIGN_CENTER, 0, 0);
 
     lv_obj_t *mark = lv_image_create(block);
     lv_image_set_src(mark, &logo_c);
@@ -1700,16 +1910,12 @@ esp_err_t ui_boot_begin(void)
     lv_obj_set_style_text_font(name, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(name, ui_color_white(), 0);
 
-    s_splash_spin = lv_label_create(s_splash);
-    lv_label_set_text(s_splash_spin, "|");
-    lv_obj_set_style_text_color(s_splash_spin, ui_color_blue(), 0);
-    lv_obj_align_to(s_splash_spin, block, LV_ALIGN_OUT_BOTTOM_MID, 0, UI_SPLASH_GAP);
+    lv_obj_t *bar = lv_bar_create(block);
+    style_meter_bar(bar);
 
-    /* Filho 2: status do ponto. Sem ponteiro estatico — teto de DRAM. */
-    lv_obj_t *st = lv_label_create(s_splash);
-    lv_label_set_text(st, "");
-    lv_obj_set_style_text_color(st, ui_color_white(), 0);
-    lv_obj_align_to(st, s_splash_spin, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
+    lv_obj_t *st = lv_label_create(block);
+    style_meter_cap(st);
+    lv_label_set_text(st, boot_step_text(0));
 
     lv_screen_load(s_splash);
     lv_timer_handler();
@@ -1719,13 +1925,13 @@ esp_err_t ui_boot_begin(void)
 
 void ui_boot_step(void)
 {
-    if (s_splash_spin == NULL) {
+    if (s_splash == NULL) {
         return;
     }
-    static const char frames[] = { '|', '/', '-', '\\' };
-    s_spin_i = (uint8_t)((s_spin_i + 1) & 3);
-    const char txt[2] = { frames[s_spin_i], 0 };
-    lv_label_set_text(s_splash_spin, txt);
+    if (s_spin_i < 3) {
+        s_spin_i++;
+    }
+    splash_apply();
     lv_timer_handler();
 }
 
@@ -1752,7 +1958,6 @@ static void leave_splash(void)
     }
     lv_obj_t *old = s_splash;
     s_splash = NULL;
-    s_splash_spin = NULL;
     /* Descarrega antes de destruir: apagar a tela ativa deixa o LVGL
      * sem tela. */
     lv_screen_load(s_home);
@@ -1765,21 +1970,7 @@ static void splash_poll(void)
     if (s_splash == NULL) {
         return;
     }
-    uint8_t frame = (uint8_t)((esp_timer_get_time() / 200000) & 3);
-    if (s_splash_spin != NULL && frame != s_spin_i) {
-        s_spin_i = frame;
-        static const char frames[] = { '|', '/', '-', '\\' };
-        const char txt[2] = { frames[s_spin_i], 0 };
-        lv_label_set_text(s_splash_spin, txt);
-    }
-    lv_obj_t *st = lv_obj_get_child(s_splash, 2);
-    if (st != NULL) {
-        const char *t = ota_recover_boot_text();
-        const char *cur = lv_label_get_text(st);
-        if (t != NULL && (cur == NULL || strcmp(cur, t) != 0)) {
-            lv_label_set_text(st, t);
-        }
-    }
+    splash_apply();
     try_leave_splash();
 }
 
@@ -1803,5 +1994,6 @@ void ui_tick(void)
     store_poll();
     wifi_poll();
     splash_poll();
+    wait_poll();
     lv_timer_handler();
 }
