@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include "esp_err.h"
 
@@ -34,3 +35,7 @@ esp_err_t ota_recover_scan(char *out, size_t max);
 esp_err_t ota_recover_start(const char *ver);
 ota_state_t ota_state(void);
 const char *ota_message(void);
+/* Splash: true quando o ponto desta versao esta no cartao ou a tentativa
+ * falhou de fato (sem cartao, sem rede, copia/manifesto). */
+bool ota_recover_boot_done(void);
+const char *ota_recover_boot_text(void);

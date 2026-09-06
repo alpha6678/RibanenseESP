@@ -9,6 +9,7 @@ esp_err_t ui_boot_begin(void);
 /* Avanca o giro do splash. Uma chamada por etapa concluida — o desenho
  * anda porque o boot andou, nao porque um timer disparou. */
 void ui_boot_step(void);
-/* Monta as telas e sai do splash. */
+/* Monta as telas. Sai do splash quando o ponto de restauracao desta
+ * versao estiver no cartao, ou quando a tentativa falhar de fato. */
 esp_err_t ui_init(void);
 void ui_tick(void);

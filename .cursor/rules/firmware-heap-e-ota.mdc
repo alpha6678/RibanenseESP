@@ -106,8 +106,9 @@ microSD: **Configurações > Restaurar do cartão** (até 10 versões
 confirmadas em `os/recuperacao/<semver>/`). Cada ponto é o par assinado
 (`firmware.json` + `.bin`); manifesto sozinho não entra na lista e a tela
 não pode ficar em `restaurando` sem acompanhar `ota_message()` (armadilha
-1f). Sem ponto no cartão, a imagem corrigida entra por USB ou por
-`POST /update`. A chave LAN é HMAC-SHA256 com o `lanSeed` do
+1f). A splash segura a home até o ponto desta versão estar no cartão
+(ou falhar de fato). Sem ponto no cartão, a imagem corrigida entra por
+USB ou por `POST /update`. A chave LAN é HMAC-SHA256 com o `lanSeed` do
 `version.json` sobre os 6 bytes do MAC, 4 primeiros bytes em hex.
 
 ```powershell

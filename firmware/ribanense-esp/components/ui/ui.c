@@ -80,6 +80,7 @@ static lv_obj_t *s_recover_status;
 
 static void show_wifi(void);
 static void show_home(void);
+static void leave_splash(void);
 static void show_settings(void);
 static void build_settings(void);
 static void show_brightness(void);
@@ -1144,6 +1145,9 @@ static void show_home(void)
     s_wifi_live = false;
     s_scan_pending = false;
     (void)net_scan_stop();
+    if (s_splash != NULL) {
+        leave_splash();
+    }
     lv_screen_load(s_home);
     destroy_pass();
     destroy_store();
@@ -1679,6 +1683,12 @@ esp_err_t ui_boot_begin(void)
     lv_obj_set_style_text_color(s_splash_spin, ui_color_blue(), 0);
     lv_obj_align(s_splash_spin, LV_ALIGN_CENTER, 0, 14);
 
+    /* Filho 2: status do ponto. Sem ponteiro estatico — teto de DRAM. */
+    lv_obj_t *st = lv_label_create(s_splash);
+    lv_label_set_text(st, "");
+    lv_obj_set_style_text_color(st, ui_color_white(), 0);
+    lv_obj_align(st, LV_ALIGN_CENTER, 0, 36);
+
     lv_screen_load(s_splash);
     lv_timer_handler();
     board_backlight_set(UI_SPLASH_BL);
@@ -1697,18 +1707,56 @@ void ui_boot_step(void)
     lv_timer_handler();
 }
 
+static void leave_splash(void)
+{
+    if (s_splash == NULL) {
+        return;
+    }
+    lv_obj_t *old = s_splash;
+    s_splash = NULL;
+    s_splash_spin = NULL;
+    /* Descarrega antes de destruir: apagar a tela ativa deixa o LVGL
+     * sem tela. */
+    lv_screen_load(s_home);
+    lv_obj_delete(old);
+    ESP_LOGI(TAG, "UI pronta (home + configuracoes + catalogo)");
+}
+
+static void splash_poll(void)
+{
+    if (s_splash == NULL) {
+        return;
+    }
+    if (ota_recover_boot_done()) {
+        leave_splash();
+        return;
+    }
+    uint8_t frame = (uint8_t)((esp_timer_get_time() / 200000) & 3);
+    if (s_splash_spin != NULL && frame != s_spin_i) {
+        s_spin_i = frame;
+        static const char frames[] = { '|', '/', '-', '\\' };
+        const char txt[2] = { frames[s_spin_i], 0 };
+        lv_label_set_text(s_splash_spin, txt);
+    }
+    lv_obj_t *st = lv_obj_get_child(s_splash, 2);
+    if (st != NULL) {
+        const char *t = ota_recover_boot_text();
+        const char *cur = lv_label_get_text(st);
+        if (t != NULL && (cur == NULL || strcmp(cur, t) != 0)) {
+            lv_label_set_text(st, t);
+        }
+    }
+}
+
 esp_err_t ui_init(void)
 {
     build_home();
-    lv_screen_load(s_home);
-    if (s_splash != NULL) {
-        /* Descarrega antes de destruir: apagar a tela ativa deixa o LVGL
-         * sem tela. */
-        lv_obj_delete(s_splash);
-        s_splash = NULL;
-        s_splash_spin = NULL;
+    ota_health_tick();
+    if (ota_recover_boot_done()) {
+        leave_splash();
+    } else {
+        ESP_LOGI(TAG, "UI montada, splash ate o ponto de restauracao");
     }
-    ESP_LOGI(TAG, "UI pronta (home + configuracoes + catalogo)");
     return ESP_OK;
 }
 
@@ -1718,5 +1766,6 @@ void ui_tick(void)
     ota_poll();
     store_poll();
     wifi_poll();
+    splash_poll();
     lv_timer_handler();
 }

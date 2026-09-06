@@ -177,7 +177,9 @@ tela, sem rede e sem cabo.
 
 A placa acrescenta o ponto sozinha quando a imagem se confirma (ou no boot
 já válido, se aquela versão ainda não estiver no cartão e o manifesto do
-GitHub ainda a descrever). Para repor à mão:
+GitHub ainda a descrever). A splash não cede a home enquanto essa cópia
+não termina ou falha de fato — a home abria no meio da gravação de 1,4 MB.
+Para repor à mão:
 
 ```bat
 rbesp recuperacao E:

@@ -64,6 +64,15 @@ static esp_err_t s_http_err;
 static char s_log[LOG_RING][LOG_LINE];
 static uint8_t s_log_w;
 static uint8_t s_log_n;
+/* 0-3 splash ainda espera; 8 ponto ok; 9 falha de fato. Cabe no padding
+ * antes de s_blk_min — nao cresce a DRAM estatica (teto 96136). */
+#define RECBOOT_PEND        0
+#define RECBOOT_PEND_PROVA  1
+#define RECBOOT_PEND_NET    2
+#define RECBOOT_PEND_COPIA  3
+#define RECBOOT_OK          8
+#define RECBOOT_FAIL        9
+static uint8_t s_recover_boot;
 static uint32_t s_blk_min;
 /* Ligado na primeira leitura do manifesto desde o boot, venha ela do probe,
  * do ensaio ou do pull. E a prova de que esta imagem ainda se atualiza. */
@@ -1332,6 +1341,42 @@ static void recover_prune(void)
     }
 }
 
+static void recover_boot_finish_ok(void)
+{
+    s_recover_boot = RECBOOT_OK;
+}
+
+static void recover_boot_finish_fail(void)
+{
+    s_recover_boot = RECBOOT_FAIL;
+}
+
+static bool recover_boot_start_save(void)
+{
+    if (s_recover_boot >= RECBOOT_OK || s_recover_boot == RECBOOT_PEND_COPIA) {
+        return s_recover_boot >= RECBOOT_OK;
+    }
+    if (recover_has(RIBANENSEESP_VERSION)) {
+        recover_boot_finish_ok();
+        return true;
+    }
+    if (!storage_ready()) {
+        recover_boot_finish_fail();
+        return false;
+    }
+    if (s_pull_busy) {
+        return false;
+    }
+    s_recover_boot = RECBOOT_PEND_COPIA;
+    s_pull_busy = true;
+    if (xTaskCreate(recover_save_task, "ota_copia", OTA_TASK_STACK, NULL, 3, NULL) != pdPASS) {
+        s_pull_busy = false;
+        recover_boot_finish_fail();
+        return false;
+    }
+    return false;
+}
+
 /* Copia a imagem em execucao para os/recuperacao/<ver>/. Idempotente: se a
  * pasta ja existe, nao baixa manifesto nem reescreve o .bin. O manifesto do
  * GitHub tem de descrever esta imagem -- senao o par fica incoerente. */
@@ -1450,7 +1495,12 @@ static esp_err_t recover_save(void)
 static void recover_save_task(void *arg)
 {
     (void)arg;
-    (void)recover_save();
+    const esp_err_t err = recover_save();
+    if (err == ESP_OK) {
+        recover_boot_finish_ok();
+    } else {
+        recover_boot_finish_fail();
+    }
     s_pull_busy = false;
     vTaskDelete(NULL);
 }
@@ -1727,81 +1777,89 @@ void ota_health_tick(void)
     static bool armed;
     static bool had_ip;
 
-    if (decided) {
-        return;
-    }
-
     if (start_us == 0) {
         start_us = esp_timer_get_time();
         const esp_partition_t *run = esp_ota_get_running_partition();
         esp_ota_img_states_t st = ESP_OTA_IMG_UNDEFINED;
         armed = (run != NULL && esp_ota_get_state_partition(run, &st) == ESP_OK &&
                  st == ESP_OTA_IMG_PENDING_VERIFY);
-        if (!armed) {
-            /* Imagem ja confirmada (USB ou boot antigo): nao ha rollback, mas
-             * ainda pode faltar o ponto desta versao no anel do cartao. */
-            decided = true;
-            if (!s_pull_busy && storage_ready() && !recover_has(RIBANENSEESP_VERSION)) {
-                s_pull_busy = true;
-                if (xTaskCreate(recover_save_task, "ota_copia", OTA_TASK_STACK, NULL, 3, NULL) != pdPASS) {
-                    s_pull_busy = false;
-                }
-            }
+        if (!storage_ready()) {
+            recover_boot_finish_fail();
+        } else if (recover_has(RIBANENSEESP_VERSION)) {
+            recover_boot_finish_ok();
+        } else if (!armed) {
+            /* Imagem ja confirmada: so falta o ponto no cartao. Espera IP
+             * para o GET do manifesto — disparar agora falhava sem rede. */
+            s_recover_boot = RECBOOT_PEND_NET;
+        } else {
+            s_recover_boot = RECBOOT_PEND_PROVA;
         }
-        return;
+        if (!armed) {
+            decided = true;
+        }
     }
 
-    int64_t up = esp_timer_get_time() - start_us;
-
-    if (s_manifest_ok) {
+    if (!decided && s_manifest_ok) {
+        int64_t up = esp_timer_get_time() - start_us;
         if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
             ESP_LOGI(TAG, "imagem confirmada: manifesto lido em %llds", up / 1000000);
         }
         decided = true;
-        /* Recem-promovida a boa conhecida: vira a copia do cartao, para haver
-         * uma saida se a proxima versao quebrar. */
-        if (!s_pull_busy && storage_ready()) {
-            s_pull_busy = true;
-            if (xTaskCreate(recover_save_task, "ota_copia", OTA_TASK_STACK, NULL, 3, NULL) != pdPASS) {
-                s_pull_busy = false;
-            }
+        if (s_recover_boot < RECBOOT_OK) {
+            (void)recover_boot_start_save();
         }
         return;
     }
 
+    if (!decided) {
+        int64_t up = esp_timer_get_time() - start_us;
+        if (net_sta_state() == NET_STA_GOT_IP) {
+            had_ip = true;
+            int64_t now = esp_timer_get_time();
+            if (!s_pull_busy && up > HEALTH_GRACE_US && now >= next_try_us) {
+                next_try_us = now + HEALTH_RETRY_US;
+                s_pull_busy = true;
+                if (xTaskCreate(probe_task, "ota_prova", OTA_TASK_STACK, NULL, 4, NULL) != pdPASS) {
+                    s_pull_busy = false;
+                }
+            }
+        }
+        if (up < HEALTH_LIMIT_US) {
+            return;
+        }
+        decided = true;
+        if (!had_ip) {
+            /* Nunca houve rede. Isso nao acusa a imagem, e voltar para a anterior
+             * so trocaria por outra que tambem nao vai conectar aqui. */
+            if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+                ESP_LOGW(TAG, "imagem confirmada sem prova: nao houve rede em 10 min");
+            }
+            if (s_recover_boot < RECBOOT_OK) {
+                recover_boot_finish_fail();
+            }
+            return;
+        }
+        /* Teve IP e ainda assim nao leu o manifesto em 10 minutos. A rede esta de
+         * pe e a imagem nao alcanca o GitHub: e ela que esta quebrada. Reinicia
+         * sem confirmar para o bootloader cair na fabrica. */
+        ESP_LOGE(TAG, "imagem reprovada: com IP e sem manifesto em 10 min; revertendo");
+        set_state(OTA_ERR, "revertendo...");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+        esp_restart();
+        return;
+    }
+
+    if (s_recover_boot >= RECBOOT_OK || s_recover_boot == RECBOOT_PEND_COPIA) {
+        return;
+    }
     if (net_sta_state() == NET_STA_GOT_IP) {
-        had_ip = true;
-        int64_t now = esp_timer_get_time();
-        if (!s_pull_busy && up > HEALTH_GRACE_US && now >= next_try_us) {
-            next_try_us = now + HEALTH_RETRY_US;
-            s_pull_busy = true;
-            if (xTaskCreate(probe_task, "ota_prova", OTA_TASK_STACK, NULL, 4, NULL) != pdPASS) {
-                s_pull_busy = false;
-            }
-        }
-    }
-
-    if (up < HEALTH_LIMIT_US) {
+        (void)recover_boot_start_save();
         return;
     }
-    decided = true;
-
-    if (!had_ip) {
-        /* Nunca houve rede. Isso nao acusa a imagem, e voltar para a anterior
-         * so trocaria por outra que tambem nao vai conectar aqui. */
-        if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
-            ESP_LOGW(TAG, "imagem confirmada sem prova: nao houve rede em 10 min");
-        }
-        return;
+    if ((esp_timer_get_time() - start_us) > HEALTH_GRACE_US) {
+        ESP_LOGW(TAG, "ponto no cartao adiado: sem rede");
+        recover_boot_finish_fail();
     }
-
-    /* Teve IP e ainda assim nao leu o manifesto em 10 minutos. A rede esta de
-     * pe e a imagem nao alcanca o GitHub: e ela que esta quebrada. Reinicia
-     * sem confirmar para o bootloader cair na fabrica. */
-    ESP_LOGE(TAG, "imagem reprovada: com IP e sem manifesto em 10 min; revertendo");
-    set_state(OTA_ERR, "revertendo...");
-    vTaskDelay(pdMS_TO_TICKS(3000));
-    esp_restart();
 }
 
 esp_err_t ota_init(void)
@@ -1898,4 +1956,23 @@ ota_state_t ota_state(void)
 const char *ota_message(void)
 {
     return s_msg;
+}
+
+bool ota_recover_boot_done(void)
+{
+    return s_recover_boot >= RECBOOT_OK;
+}
+
+const char *ota_recover_boot_text(void)
+{
+    switch (s_recover_boot) {
+    case RECBOOT_PEND_PROVA:
+        return "provando imagem...";
+    case RECBOOT_PEND_NET:
+        return "aguardando rede...";
+    case RECBOOT_PEND_COPIA:
+        return "gravando ponto...";
+    default:
+        return "";
+    }
 }
