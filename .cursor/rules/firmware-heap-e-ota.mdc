@@ -107,9 +107,12 @@ confirmadas em `os/recuperacao/<semver>/`). Cada ponto é o par assinado
 (`firmware.json` + `.bin`); manifesto sozinho não entra na lista e a tela
 não pode ficar em `restaurando` sem acompanhar `ota_message()` (armadilha
 1f). A splash segura a home até o ponto desta versão estar no cartão
-(ou falhar de fato). Sem ponto no cartão, a imagem corrigida entra por
-USB ou por `POST /update`. A chave LAN é HMAC-SHA256 com o `lanSeed` do
-`version.json` sobre os 6 bytes do MAC, 4 primeiros bytes em hex.
+ou falhar de fato (armadilha 1g). No 0.4.8 isso durou ~30 s: confirmação
+do manifesto aos 20 s, `ponto de restauracao 0.4.8 no cartao (1424208 B)`
+em 29573 ms, `UI pronta` em 29585 ms. Sem ponto no cartão, a imagem
+corrigida entra por USB ou por `POST /update`. A chave LAN é HMAC-SHA256
+com o `lanSeed` do `version.json` sobre os 6 bytes do MAC, 4 primeiros
+bytes em hex.
 
 ```powershell
 curl.exe -X POST --data-binary "@ribanense-esp-0.3.5.bin" `

@@ -240,7 +240,10 @@ rbesp recovery E:
 Acrescenta a versão publicada ao anel de até 10 pontos em
 `E:\os\recuperacao\<semver>\`. Não apaga as outras versões; se passar de 10,
 sai a de menor semver. Sem letra, lista as unidades removíveis. Pasta sem o
-`.bin` não é ponto válido (a placa também ignora).
+`.bin` não é ponto válido (a placa também ignora; armadilha 1f). Depois de
+um OTA a splash segura a home até o ponto desta versão estar no cartão
+(armadilha 1g): no monitor, `UI pronta` só depois de
+`ponto de restauracao <ver> no cartao`.
 
 ## Índice (canônico + sinônimos)
 

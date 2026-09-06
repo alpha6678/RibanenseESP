@@ -50,6 +50,10 @@ vão contíguo de 16749 bytes.
 **Regra** `rbesp check` compara a DRAM estática com
 `ferramentas/baseline-memoria.json` e reprova quem passar do teto. Subir o
 teto exige ensaio verde em hardware.
+**Alinhamento** Um `bool` depois de um ponteiro alargou o BSS em **8 B**
+(`96144` > teto `96136`) e o `os release 0.4.7` foi recusado. Empacotar ao
+lado das outras `bool` voltou ao teto. No 0.4.8 o uso ficou em **96128 B**
+(folga 8 B).
 
 ## 1d. Manifesto em cache faz a placa dizer que está atualizada
 
@@ -98,6 +102,24 @@ varre órfão no pai (nome da url, nome com a versão, ou o único `.bin` /
 **Se o .bin não existir** a versão some da lista; o ponto completo mais novo
 continua. Reponha com `rbesp recuperacao E:` ou deixe a placa gravar o ponto
 depois da confirmação.
+
+## 1g. Home abre no meio da cópia do ponto no cartão
+
+**Sintoma** Depois do OTA a home aparece em ~1 s (`UI pronta`); o ponto no
+cartão só termina ~30 s depois. O usuário acha a placa pronta e tenta
+Restaurar numa versão que ainda não existe — ou vê a home “lenta” sem
+entender que o SD ainda grava 1,4 MB.
+**Causa** `ui_init()` trocava para a home ao montar as telas. A cópia do
+anel só começa depois da prova de saúde e precisa de rede para o
+manifesto assinado. No 0.4.7, já na home: `imagem confirmada: manifesto
+lido em 20s` e só então `anel ja tem 0.4.7`.
+**Correção** Splash segura (`UI montada, splash ate o ponto de restauracao`)
+até `ota_recover_boot_done()`: par completo ou falha de fato (sem cartão,
+sem rede, cópia). Textos: `provando imagem...`, `aguardando rede...`,
+`gravando ponto...`.
+**Medido no 0.4.8** splash em 1422 ms; `imagem confirmada` em 20 s;
+`ponto de restauracao 0.4.8 no cartao (1424208 B)` em 29573 ms;
+`UI pronta` em 29585 ms. Se o ponto já existe, a splash some na hora.
 
 ## 2. Versão antiga compilada dentro do binário
 

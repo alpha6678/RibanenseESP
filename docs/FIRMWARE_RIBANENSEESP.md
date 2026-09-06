@@ -4,7 +4,7 @@ Casca de firmware da placa E32R28T-1 (ESP32-32E 2,8"). Vive em
 [`firmware/ribanense-esp/`](../firmware/ribanense-esp/). Este repositório
 é só firmware (ESP-IDF).
 
-Versão atual: **0.3.5** em [`firmware/ribanense-esp/version.json`](../firmware/ribanense-esp/version.json).
+Versão atual: **0.4.8** em [`firmware/ribanense-esp/version.json`](../firmware/ribanense-esp/version.json).
 Tag de release: `ribanense-esp-v<semver>`.
 
 O dossiê da unidade (fotos, pinout, o que veio na caixa) continua em
@@ -178,8 +178,21 @@ tela, sem rede e sem cabo.
 A placa acrescenta o ponto sozinha quando a imagem se confirma (ou no boot
 já válido, se aquela versão ainda não estiver no cartão e o manifesto do
 GitHub ainda a descrever). A splash não cede a home enquanto essa cópia
-não termina ou falha de fato — a home abria no meio da gravação de 1,4 MB.
-Para repor à mão:
+não termina ou falha de fato (armadilha 1g) — a home abria no meio da
+gravação de 1,4 MB.
+
+No monitor do 0.4.8, depois do `SW_CPU_RESET`:
+
+```
+I (1422)  ui: UI montada, splash ate o ponto de restauracao
+I (21982) ota: imagem confirmada: manifesto lido em 20s
+I (29573) ota: ponto de restauracao 0.4.8 no cartao (1424208 B)
+I (29585) ui: UI pronta (home + configuracoes + catalogo)
+```
+
+Se o ponto desta versão já existe, aparece `anel ja tem <ver>` e a splash
+some na hora. `migrateu recuperacao solta` sem um `.bin` na pasta não é
+ponto válido (armadilha 1f). Para repor à mão:
 
 ```bat
 rbesp recuperacao E:
@@ -201,7 +214,7 @@ antigo não vê releases novos — primeiro flash por USB
 O OS é o launcher da placa. Apps nativos (projetos IDF em
 `firmware/apps/`) instalam-se em `/sdcard/apps/<id>/` a partir de
 [`catalog/esp-catalog.json`](../catalog/esp-catalog.json). A home lista o
-que já está no cartão (até 24 na UI); **Catalogo** baixa e instala. Abrir um app grava
+que já está no cartão (teto 8, armadilha 1c); **Catalogo** baixa e instala. Abrir um app grava
 o `.bin` no slot OTA inativo e reinicia; **Voltar** devolve o boot ao OS
 (NVS `rib_os`/`slot`). Contrato: [`ESP_APP_SDK.md`](ESP_APP_SDK.md).
 

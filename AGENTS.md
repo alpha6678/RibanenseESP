@@ -33,7 +33,9 @@ Antes de mexer em firmware, build ou CLI, leia
 [`.cursor/rules/armadilhas-conhecidas.mdc`](.cursor/rules/armadilhas-conhecidas.mdc).
 São erros já reproduzidos na placa física, com sintoma, causa e correção:
 
-1. Pilha de tarefa grande derruba o record TLS de 16 KB e mata o OTA.
+1. Pilha de tarefa grande / buffer dinâmico / vetor estático derruba o TLS.
+1f. Restaurar pinta sucesso sem o `.bin` no cartão.
+1g. Home abre antes do ponto de restauração terminar no microSD.
 2. `version.json` sem reconfigure do CMake compila a versão antiga no binário.
 3. Saída de processo externo vira retorno de função no PowerShell.
 
