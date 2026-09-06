@@ -11,9 +11,9 @@
       "githubRepo": "RibanenseESP",
       "githubTagPrefix": "esp-sobre-v",
       "minimumOsVersion": "0.0.2",
-      "version": "0.1.4",
-      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-sobre-0.1.4.zip",
-      "sha256": "892f1ca0cd7bbe5bc38da676b57e8c548838d4c05be9d06a79770a6201e58ac4"
+      "version": "0.1.5",
+      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-sobre-0.1.5.zip",
+      "sha256": "25f2c0186d5993400f2e1196e128f775b5107017e629f6f2e1d626874b6fb253"
     },
     {
       "id": "com.ribanense.esp.redes",
