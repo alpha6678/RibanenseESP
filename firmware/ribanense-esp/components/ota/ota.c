@@ -1001,6 +1001,82 @@ static void recover_manifest_rel(char *out, size_t max, const char *ver)
     snprintf(out, max, "%s/%s/firmware.json", OTA_RECOVER_DIR, ver);
 }
 
+static bool ends_ci(const char *s, const char *suf)
+{
+    size_t ls = strlen(s);
+    size_t lf = strlen(suf);
+    if (ls < lf) {
+        return false;
+    }
+    for (size_t i = 0; i < lf; i++) {
+        if (tolower((unsigned char)s[ls - lf + i]) !=
+            tolower((unsigned char)suf[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool is_bin_name(const char *n)
+{
+    return ends_ci(n, ".bin") || ends_ci(n, ".bin.t");
+}
+
+static bool recover_move_rel(const char *src, const char *dest)
+{
+    char src_abs[192];
+    char dest_abs[192];
+    if (storage_abs(src, src_abs, sizeof(src_abs)) != ESP_OK ||
+        storage_abs(dest, dest_abs, sizeof(dest_abs)) != ESP_OK) {
+        return false;
+    }
+    unlink(dest_abs);
+    if (rename(src_abs, dest_abs) != 0) {
+        ESP_LOGW(TAG, "move %s -> %s falhou", src, dest);
+        return false;
+    }
+    return true;
+}
+
+/* Nome convencional, LFN, 8.3 ou leftover .bin.t — o que estiver na pasta. */
+static bool recover_bin_rel(const char *ver, char *out, size_t max)
+{
+    char dir[80];
+    if (snprintf(dir, sizeof(dir), "%s/%s", OTA_RECOVER_DIR, ver) >= (int)sizeof(dir)) {
+        return false;
+    }
+    char conv[128];
+    if (snprintf(conv, sizeof(conv), "%s/ribanense-esp-%s.bin", dir, ver) < (int)sizeof(conv) &&
+        storage_exists(conv)) {
+        if (out != NULL && snprintf(out, max, "%s", conv) >= (int)max) {
+            return false;
+        }
+        return true;
+    }
+    char names[4][64];
+    int n = storage_list_files(dir, names, 4);
+    const char *best = NULL;
+    for (int i = 0; i < n; i++) {
+        if (!is_bin_name(names[i])) {
+            continue;
+        }
+        if (strstr(names[i], ver) != NULL) {
+            best = names[i];
+            break;
+        }
+        if (best == NULL) {
+            best = names[i];
+        }
+    }
+    if (best == NULL) {
+        return false;
+    }
+    if (out != NULL && snprintf(out, max, "%s/%s", dir, best) >= (int)max) {
+        return false;
+    }
+    return true;
+}
+
 static bool recover_has(const char *ver)
 {
     if (!recover_ver_ok(ver)) {
@@ -1008,72 +1084,167 @@ static bool recover_has(const char *ver)
     }
     char rel[80];
     recover_manifest_rel(rel, sizeof(rel), ver);
-    return storage_exists(rel);
+    return storage_exists(rel) && recover_bin_rel(ver, NULL, 0);
+}
+
+/* Procura .bin orfao no topo de os/recuperacao/ (layout velho ou 8.3). */
+static bool recover_pick_orphan_bin(const char *ver, const char *prefer,
+                                    char *out, size_t max)
+{
+    if (prefer != NULL && prefer[0] != 0) {
+        char rel[160];
+        if (snprintf(rel, sizeof(rel), "%s/%s", OTA_RECOVER_DIR, prefer) < (int)sizeof(rel) &&
+            storage_exists(rel)) {
+            if (snprintf(out, max, "%s", rel) >= (int)max) {
+                return false;
+            }
+            return true;
+        }
+        if (snprintf(rel, sizeof(rel), "%s/%s.t", OTA_RECOVER_DIR, prefer) < (int)sizeof(rel) &&
+            storage_exists(rel)) {
+            if (snprintf(out, max, "%s", rel) >= (int)max) {
+                return false;
+            }
+            return true;
+        }
+    }
+    char names[8][64];
+    int n = storage_list_files(OTA_RECOVER_DIR, names, 8);
+    const char *best = NULL;
+    int bins = 0;
+    for (int i = 0; i < n; i++) {
+        if (!is_bin_name(names[i])) {
+            continue;
+        }
+        bins++;
+        if (ver != NULL && strstr(names[i], ver) != NULL) {
+            best = names[i];
+            break;
+        }
+        if (best == NULL) {
+            best = names[i];
+        }
+    }
+    if (best == NULL) {
+        return false;
+    }
+    if (ver != NULL && strstr(best, ver) == NULL && bins > 1) {
+        return false;
+    }
+    return snprintf(out, max, "%s/%s", OTA_RECOVER_DIR, best) < (int)max;
+}
+
+static void recover_adopt_bin(const char *ver, const char *prefer_nome)
+{
+    if (!recover_ver_ok(ver) || recover_bin_rel(ver, NULL, 0)) {
+        return;
+    }
+    char src[160];
+    if (!recover_pick_orphan_bin(ver, prefer_nome, src, sizeof(src))) {
+        ESP_LOGW(TAG, "recuperacao %s sem .bin (manifesto sozinho)", ver);
+        return;
+    }
+    const char *base = strrchr(src, '/');
+    base = (base != NULL && base[1] != 0) ? base + 1 : src;
+    char dest_name[64];
+    strncpy(dest_name, base, sizeof(dest_name) - 1);
+    dest_name[sizeof(dest_name) - 1] = 0;
+    size_t L = strlen(dest_name);
+    if (L > 2 && dest_name[L - 2] == '.' && dest_name[L - 1] == 't') {
+        dest_name[L - 2] = 0;
+    }
+    char dest[160];
+    char dir[80];
+    if (snprintf(dir, sizeof(dir), "%s/%s", OTA_RECOVER_DIR, ver) >= (int)sizeof(dir) ||
+        snprintf(dest, sizeof(dest), "%s/%s", dir, dest_name) >= (int)sizeof(dest)) {
+        return;
+    }
+    (void)storage_mkdir(dir);
+    if (recover_move_rel(src, dest)) {
+        ESP_LOGI(TAG, "adotou bin orfao %s -> %s", src, dest);
+    }
+}
+
+static void recover_adopt_incomplete(void)
+{
+    char names[OTA_RECOVER_MAX][64];
+    int n = storage_list_dirs(OTA_RECOVER_DIR, names, OTA_RECOVER_MAX);
+    for (int i = 0; i < n; i++) {
+        if (!recover_ver_ok(names[i]) || recover_bin_rel(names[i], NULL, 0)) {
+            continue;
+        }
+        char man[80];
+        recover_manifest_rel(man, sizeof(man), names[i]);
+        if (!storage_exists(man)) {
+            continue;
+        }
+        char nome_buf[64];
+        nome_buf[0] = 0;
+        char *json = malloc(2048);
+        if (json != NULL && storage_read_text(man, json, 2048) == ESP_OK) {
+            cJSON *root = cJSON_Parse(json);
+            if (root != NULL) {
+                const cJSON *ju = cJSON_GetObjectItem(root, "url");
+                const char *uv = cJSON_IsString(ju) ? ju->valuestring : "";
+                const char *bn = url_basename(uv);
+                if (bn != NULL) {
+                    strncpy(nome_buf, bn, sizeof(nome_buf) - 1);
+                    nome_buf[sizeof(nome_buf) - 1] = 0;
+                }
+                cJSON_Delete(root);
+            }
+        }
+        free(json);
+        recover_adopt_bin(names[i], nome_buf[0] ? nome_buf : NULL);
+    }
 }
 
 /* Promove o layout velho (firmware.json solto) para os/recuperacao/<ver>/.
- * Bins orfaos sem manifesto nao ganham pasta: nao ha assinatura para eles. */
+ * Bins orfaos sem manifesto nao ganham pasta: nao ha assinatura para eles.
+ * Pasta com manifesto e sem .bin nao entra na lista — e o caso que pintava
+ * "restaurando" na UI e morria com bin ausente. */
 static void recover_migrate_flat(void)
 {
     const char *old_man = OTA_RECOVER_DIR "/firmware.json";
-    if (!storage_exists(old_man)) {
-        return;
-    }
-    char *json = malloc(2048);
-    if (json == NULL) {
-        return;
-    }
-    if (storage_read_text(old_man, json, 2048) != ESP_OK || json[0] == 0) {
-        free(json);
-        return;
-    }
-    cJSON *root = cJSON_Parse(json);
-    free(json);
-    if (root == NULL) {
-        return;
-    }
-    const cJSON *jv = cJSON_GetObjectItem(root, "version");
-    const cJSON *ju = cJSON_GetObjectItem(root, "url");
-    const char *vv = cJSON_IsString(jv) ? jv->valuestring : "";
-    const char *uv = cJSON_IsString(ju) ? ju->valuestring : "";
-    const char *nome = url_basename(uv);
-    char ver[OTA_RECOVER_VER_MAX];
-    strncpy(ver, vv, sizeof(ver) - 1);
-    ver[sizeof(ver) - 1] = 0;
-    cJSON_Delete(root);
-    if (!recover_ver_ok(ver) || nome == NULL) {
-        return;
-    }
-
-    char dir[80];
-    char dest_man[96];
-    char dest_bin[128];
-    char src_bin[128];
-    char src_abs[192];
-    char dest_abs[192];
-    snprintf(dir, sizeof(dir), "%s/%s", OTA_RECOVER_DIR, ver);
-    recover_manifest_rel(dest_man, sizeof(dest_man), ver);
-    snprintf(dest_bin, sizeof(dest_bin), "%s/%s/%s", OTA_RECOVER_DIR, ver, nome);
-    snprintf(src_bin, sizeof(src_bin), "%s/%s", OTA_RECOVER_DIR, nome);
-    (void)storage_mkdir(OTA_RECOVER_DIR);
-    (void)storage_mkdir(dir);
-    if (storage_abs(old_man, src_abs, sizeof(src_abs)) == ESP_OK &&
-        storage_abs(dest_man, dest_abs, sizeof(dest_abs)) == ESP_OK) {
-        unlink(dest_abs);
-        if (rename(src_abs, dest_abs) != 0) {
-            ESP_LOGW(TAG, "migrate manifesto falhou");
-            return;
+    if (storage_exists(old_man)) {
+        char *json = malloc(2048);
+        if (json != NULL) {
+            if (storage_read_text(old_man, json, 2048) == ESP_OK && json[0] != 0) {
+                cJSON *root = cJSON_Parse(json);
+                if (root != NULL) {
+                    const cJSON *jv = cJSON_GetObjectItem(root, "version");
+                    const cJSON *ju = cJSON_GetObjectItem(root, "url");
+                    const char *vv = cJSON_IsString(jv) ? jv->valuestring : "";
+                    const char *uv = cJSON_IsString(ju) ? ju->valuestring : "";
+                    const char *nome = url_basename(uv);
+                    char ver[OTA_RECOVER_VER_MAX];
+                    strncpy(ver, vv, sizeof(ver) - 1);
+                    ver[sizeof(ver) - 1] = 0;
+                    cJSON_Delete(root);
+                    if (recover_ver_ok(ver) && nome != NULL) {
+                        char dir[80];
+                        char dest_man[96];
+                        snprintf(dir, sizeof(dir), "%s/%s", OTA_RECOVER_DIR, ver);
+                        recover_manifest_rel(dest_man, sizeof(dest_man), ver);
+                        (void)storage_mkdir(OTA_RECOVER_DIR);
+                        (void)storage_mkdir(dir);
+                        if (recover_move_rel(old_man, dest_man)) {
+                            recover_adopt_bin(ver, nome);
+                            if (recover_has(ver)) {
+                                ESP_LOGI(TAG, "migrateu recuperacao solta -> %s", ver);
+                            } else {
+                                ESP_LOGW(TAG, "migrateu manifesto %s sem o .bin", ver);
+                            }
+                        } else {
+                            ESP_LOGW(TAG, "migrate manifesto falhou");
+                        }
+                    }
+                }
+            }
+            free(json);
         }
     }
-    if (storage_exists(src_bin) &&
-        storage_abs(src_bin, src_abs, sizeof(src_abs)) == ESP_OK &&
-        storage_abs(dest_bin, dest_abs, sizeof(dest_abs)) == ESP_OK) {
-        unlink(dest_abs);
-        if (rename(src_abs, dest_abs) != 0) {
-            ESP_LOGW(TAG, "migrate bin falhou");
-        }
-    }
-    ESP_LOGI(TAG, "migrateu recuperacao solta -> %s", ver);
+    recover_adopt_incomplete();
 }
 
 static void recover_sort_desc(char vers[][OTA_RECOVER_VER_MAX], int n)
@@ -1348,13 +1519,17 @@ static void recover_task(void *arg)
         goto fim;
     }
 
+    recover_adopt_bin(s_recover_pick, nome);
+
     char rel[160];
     char abs[192];
-    if (snprintf(rel, sizeof(rel), "%s/%s/%s", OTA_RECOVER_DIR, s_recover_pick, nome) >= (int)sizeof(rel) ||
+    if (!recover_bin_rel(s_recover_pick, rel, sizeof(rel)) ||
         storage_abs(rel, abs, sizeof(abs)) != ESP_OK) {
-        set_state(OTA_ERR, "caminho longo");
+        ESP_LOGE(TAG, "ausente: %s/%s/%s", OTA_RECOVER_DIR, s_recover_pick, nome);
+        set_state(OTA_ERR, "bin ausente");
         goto fim;
     }
+    ESP_LOGI(TAG, "restaurando de %s", rel);
     f = fopen(abs, "rb");
     if (f == NULL) {
         ESP_LOGE(TAG, "ausente: %s", abs);

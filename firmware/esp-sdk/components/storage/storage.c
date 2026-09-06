@@ -311,3 +311,36 @@ int storage_list_dirs(const char *rel_dir, char names[][64], int max)
     closedir(d);
     return n;
 }
+
+int storage_list_files(const char *rel_dir, char names[][64], int max)
+{
+    if (!s_ready || names == NULL || max <= 0) {
+        return 0;
+    }
+    char path[160];
+    if (storage_abs(rel_dir ? rel_dir : "", path, sizeof(path)) != ESP_OK) {
+        return 0;
+    }
+    DIR *d = opendir(path);
+    if (d == NULL) {
+        return 0;
+    }
+    int n = 0;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL && n < max) {
+        if (ent->d_name[0] == '.') {
+            continue;
+        }
+        char child[420];
+        snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
+        struct stat st;
+        if (stat(child, &st) != 0 || S_ISDIR(st.st_mode)) {
+            continue;
+        }
+        strncpy(names[n], ent->d_name, 63);
+        names[n][63] = 0;
+        n++;
+    }
+    closedir(d);
+    return n;
+}

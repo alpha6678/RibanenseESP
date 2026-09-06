@@ -76,6 +76,7 @@ static uint8_t s_bright_draft = 100;
 static lv_obj_t *s_recover;
 static lv_obj_t *s_recover_list;
 static lv_obj_t *s_recover_status;
+static bool s_recover_follow;
 
 static void show_wifi(void);
 static void show_home(void);
@@ -372,6 +373,16 @@ static void ota_poll(void)
         color = ui_color_green();
     }
     set_home_ota(msg, color);
+    if (s_recover_follow && s_recover_status != NULL) {
+        lv_color_t rec_color = ui_color_white();
+        if (st == OTA_ERR) {
+            rec_color = ui_color_red();
+        } else if (st == OTA_OK_REBOOT) {
+            rec_color = ui_color_green();
+        }
+        lv_label_set_text(s_recover_status, msg);
+        lv_obj_set_style_text_color(s_recover_status, rec_color, 0);
+    }
 }
 
 static void store_poll(void)
@@ -1375,6 +1386,7 @@ static void on_open_store(lv_event_t *e)
 
 static void destroy_recover(void)
 {
+    s_recover_follow = false;
     if (s_recover) {
         lv_obj_t *old = s_recover;
         s_recover = NULL;
@@ -1406,15 +1418,17 @@ static void on_recover_pick(lv_event_t *e)
         }
         return;
     }
-    if (s_recover_status != NULL) {
-        char m[40];
-        snprintf(m, sizeof(m), "restaurando %s", ver);
-        lv_label_set_text(s_recover_status, m);
-        lv_obj_set_style_text_color(s_recover_status, ui_color_white(), 0);
+    if (ota_recover_start(ver) != ESP_OK) {
+        if (s_recover_status != NULL) {
+            lv_label_set_text(s_recover_status, "nao foi");
+            lv_obj_set_style_text_color(s_recover_status, ui_color_red(), 0);
+        }
+        return;
     }
-    if (ota_recover_start(ver) != ESP_OK && s_recover_status != NULL) {
-        lv_label_set_text(s_recover_status, "nao foi");
-        lv_obj_set_style_text_color(s_recover_status, ui_color_red(), 0);
+    s_recover_follow = true;
+    if (s_recover_status != NULL) {
+        lv_label_set_text(s_recover_status, "lendo cartao...");
+        lv_obj_set_style_text_color(s_recover_status, ui_color_white(), 0);
     }
 }
 

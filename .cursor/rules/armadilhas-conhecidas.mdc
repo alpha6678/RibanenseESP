@@ -81,6 +81,24 @@ dos 4,06 MB úteis de uma flash de 4 MB.
 recuperação vive no microSD, não na flash — e é melhor assim, porque uma
 fábrica velha na flash ainda dependeria do GitHub para voltar ao dia.
 
+## 1f. Restaurar pinta sucesso e não grava nem reinicia
+
+**Sintoma** Tela Restaurar fica em `restaurando 0.4.5` (parece que restaurou);
+o monitor não mostra leitura de bytes nem `SW_CPU_RESET`; a placa continua
+na versão atual. Log: `migrateu recuperacao solta -> 0.4.5` e em seguida
+`ausente: /sdcard/os/recuperacao/0.4.5/ribanense-esp-0.4.5.bin`.
+**Causa** `recover_has()` só testava `firmware.json`. A migração do layout
+solto movia o manifesto e logava `migrateu` mesmo sem o `.bin` (nome 8.3,
+`.bin.t` ou arquivo ainda no pai). A UI escrevia `restaurando` no toque e o
+`ota_poll` só atualizava o rótulo Atualizar — o `bin ausente` não aparecia
+na tela de Restaurar.
+**Correção** Ponto só entra na lista com manifesto **e** `.bin`. A migração
+varre órfão no pai (nome da url, nome com a versão, ou o único `.bin` /
+`.bin.t`). A tela de Restaurar acompanha `ota_state()` / `ota_message()`.
+**Se o .bin não existir** a versão some da lista; o ponto completo mais novo
+continua. Reponha com `rbesp recuperacao E:` ou deixe a placa gravar o ponto
+depois da confirmação.
+
 ## 2. Versão antiga compilada dentro do binário
 
 **Sintoma** A placa recebe o OTA e continua se anunciando na versão anterior,

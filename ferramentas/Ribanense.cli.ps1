@@ -338,8 +338,20 @@ function Invoke-PrepararRecuperacao {
             New-Item -ItemType Directory -Path $oldDir -Force | Out-Null
             $flatNome = ([uri] $flat.url).Segments[-1]
             $flatBin = Join-Path $anel $flatNome
+            if (-not (Test-Path -LiteralPath $flatBin)) {
+                $cands = @(Get-ChildItem -LiteralPath $anel -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match '\.bin(\.t)?$' -and $_.Name -like "*$($flat.version)*" })
+                if ($cands.Count -eq 0) {
+                    $cands = @(Get-ChildItem -LiteralPath $anel -File -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Name -match '\.bin(\.t)?$' })
+                    if ($cands.Count -ne 1) { $cands = @() }
+                }
+                if ($cands.Count -ge 1) { $flatBin = $cands[0].FullName }
+            }
             if (Test-Path -LiteralPath $flatBin) {
-                Move-Item -LiteralPath $flatBin -Destination (Join-Path $oldDir $flatNome) -Force
+                $destNome = if ($flatNome) { $flatNome } else { Split-Path -Leaf $flatBin }
+                if ($destNome -like '*.t') { $destNome = $destNome.Substring(0, $destNome.Length - 2) }
+                Move-Item -LiteralPath $flatBin -Destination (Join-Path $oldDir $destNome) -Force
             }
             Move-Item -LiteralPath $flatMan -Destination (Join-Path $oldDir 'firmware.json') -Force
             Write-Host "Migrou layout solto para os\recuperacao\$($flat.version)"

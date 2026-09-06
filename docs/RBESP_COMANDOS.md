@@ -239,7 +239,8 @@ rbesp recovery E:
 
 Acrescenta a versão publicada ao anel de até 10 pontos em
 `E:\os\recuperacao\<semver>\`. Não apaga as outras versões; se passar de 10,
-sai a de menor semver. Sem letra, lista as unidades removíveis.
+sai a de menor semver. Sem letra, lista as unidades removíveis. Pasta sem o
+`.bin` não é ponto válido (a placa também ignora).
 
 ## Índice (canônico + sinônimos)
 

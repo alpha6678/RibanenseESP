@@ -184,8 +184,10 @@ rbesp recuperacao E:
 ```
 
 Na placa: **Configurações > Restaurar do cartão** — lista, atual marcada, toque
-numa anterior. `GET /status` mostra `slot` e `recuperacao` (lista
-`0.4.5,0.4.4`). `GET /restaurar?v=0.4.4` com a chave LAN faz o mesmo.
+numa anterior. Pasta sem o `.bin` não entra na lista; a tela mostra o erro
+real, não “restaurando” eterno (armadilha 1f). `GET /status` mostra `slot` e
+`recuperacao` (lista `0.4.5,0.4.4`). `GET /restaurar?v=0.4.4` com a chave LAN
+faz o mesmo.
 
 Assets: `ribanense-esp-<ver>.bin` + `.sha256`. `rbesp os release`
 preenche `url`/`sha256`/`sig`. A placa que ainda busca o repositório

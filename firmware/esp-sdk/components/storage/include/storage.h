@@ -28,3 +28,5 @@ bool storage_exists(const char *rel_path);
 esp_err_t storage_mkdir(const char *rel_dir);
 esp_err_t storage_abs(const char *rel_path, char *out, size_t max);
 int storage_list_dirs(const char *rel_dir, char names[][64], int max);
+/* Arquivos regulares da pasta, sem descer. Nomes na pilha do chamador. */
+int storage_list_files(const char *rel_dir, char names[][64], int max);

@@ -13,7 +13,8 @@ typedef enum {
 
 /* Anel de recuperacao no microSD: uma pasta por versao confirmada.
  * Cada pasta guarda o mesmo par que o publish gera (firmware.json assinado
- * + o .bin da url). Teto 10: a 11a confirmada apaga a de menor semver.
+ * + o .bin da url). Pasta so com manifesto nao entra na lista.
+ * Teto 10: a 11a confirmada apaga a de menor semver.
  * 10 strings de 16 B = 160 B de DRAM se a UI copiar a lista — nao e o
  * vetor de 20 KB da armadilha 1c. */
 #define OTA_RECOVER_DIR     "os/recuperacao"
