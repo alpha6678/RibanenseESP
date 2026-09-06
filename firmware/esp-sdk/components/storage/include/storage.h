@@ -21,6 +21,10 @@ bool storage_ready(void);
 esp_err_t storage_write_text(const char *rel_path, const char *text);
 esp_err_t storage_read_text(const char *rel_path, char *out, size_t max);
 esp_err_t storage_remove(const char *rel_path);
+/* Apaga os arquivos da pasta e depois o diretorio. Nao desce em subpastas:
+ * o anel de recuperacao so guarda firmware.json + .bin em cada versao. */
+esp_err_t storage_rmdir(const char *rel_dir);
+bool storage_exists(const char *rel_path);
 esp_err_t storage_mkdir(const char *rel_dir);
 esp_err_t storage_abs(const char *rel_path, char *out, size_t max);
 int storage_list_dirs(const char *rel_dir, char names[][64], int max);

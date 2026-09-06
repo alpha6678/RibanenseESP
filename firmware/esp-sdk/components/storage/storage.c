@@ -220,6 +220,65 @@ esp_err_t storage_remove(const char *rel_path)
     return ESP_OK;
 }
 
+bool storage_exists(const char *rel_path)
+{
+    if (!s_ready || rel_path == NULL) {
+        return false;
+    }
+    char path[160];
+    if (storage_abs(rel_path, path, sizeof(path)) != ESP_OK) {
+        return false;
+    }
+    struct stat st;
+    return stat(path, &st) == 0;
+}
+
+esp_err_t storage_rmdir(const char *rel_dir)
+{
+    if (!s_ready || rel_dir == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char path[160];
+    if (storage_abs(rel_dir, path, sizeof(path)) != ESP_OK) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    DIR *d = opendir(path);
+    if (d != NULL) {
+        struct dirent *ent;
+        while ((ent = readdir(d)) != NULL) {
+            if (ent->d_name[0] == '.') {
+                continue;
+            }
+            char child[420];
+            int n = snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
+            if (n <= 0 || (size_t)n >= sizeof(child)) {
+                closedir(d);
+                return ESP_ERR_INVALID_SIZE;
+            }
+            struct stat st;
+            if (stat(child, &st) != 0) {
+                continue;
+            }
+            if (S_ISDIR(st.st_mode)) {
+                closedir(d);
+                ESP_LOGW(TAG, "rmdir recusou subpasta em %s", rel_dir);
+                return ESP_ERR_INVALID_STATE;
+            }
+            if (unlink(child) != 0 && errno != ENOENT) {
+                closedir(d);
+                return ESP_FAIL;
+            }
+        }
+        closedir(d);
+    } else if (errno != ENOENT) {
+        return ESP_FAIL;
+    }
+    if (rmdir(path) != 0 && errno != ENOENT) {
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
 int storage_list_dirs(const char *rel_dir, char names[][64], int max)
 {
     if (!s_ready || names == NULL || max <= 0) {
