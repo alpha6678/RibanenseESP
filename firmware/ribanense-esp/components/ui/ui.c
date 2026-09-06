@@ -8,6 +8,7 @@
 #include "shell.h"
 #include "store.h"
 #include "ui_palette.h"
+#include "logo_c.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -31,6 +32,8 @@
  * porcentagem davam 24x28 e a tecla saia esticada na vertical. */
 #define UI_KB_H       100
 #define SCAN_PERIOD_US 1000000
+#define UI_SPLASH_HOLD_US 3000000
+#define UI_SPLASH_GAP     14
 
 static const char *TAG = "ui";
 static lv_display_t *s_disp;
@@ -81,6 +84,8 @@ static lv_obj_t *s_recover_status;
 static void show_wifi(void);
 static void show_home(void);
 static void leave_splash(void);
+static bool splash_may_leave(void);
+static void try_leave_splash(void);
 static void show_settings(void);
 static void build_settings(void);
 static void show_brightness(void);
@@ -1146,6 +1151,9 @@ static void show_home(void)
     s_scan_pending = false;
     (void)net_scan_stop();
     if (s_splash != NULL) {
+        if (!splash_may_leave()) {
+            return;
+        }
         leave_splash();
     }
     lv_screen_load(s_home);
@@ -1673,21 +1681,35 @@ esp_err_t ui_boot_begin(void)
     lv_obj_set_style_bg_color(s_splash, ui_color_black(), 0);
     lv_obj_set_style_bg_opa(s_splash, LV_OPA_COVER, 0);
 
-    lv_obj_t *name = lv_label_create(s_splash);
-    lv_label_set_text(name, RIBANENSEESP_PRODUCT);
+    /* Bloco C + nome no centro. O C tem 160 px; sobram 40 px de cada lado. */
+    lv_obj_t *block = lv_obj_create(s_splash);
+    lv_obj_remove_style_all(block);
+    lv_obj_set_size(block, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(block, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(block, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(block, UI_SPLASH_GAP, 0);
+    lv_obj_align(block, LV_ALIGN_CENTER, 0, -28);
+
+    lv_obj_t *mark = lv_image_create(block);
+    lv_image_set_src(mark, &logo_c);
+    lv_obj_set_style_image_recolor(mark, ui_color_white(), 0);
+    lv_obj_set_style_image_recolor_opa(mark, LV_OPA_COVER, 0);
+
+    lv_obj_t *name = lv_label_create(block);
+    lv_label_set_text(name, "celer");
+    lv_obj_set_style_text_font(name, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(name, ui_color_white(), 0);
-    lv_obj_align(name, LV_ALIGN_CENTER, 0, -14);
 
     s_splash_spin = lv_label_create(s_splash);
     lv_label_set_text(s_splash_spin, "|");
     lv_obj_set_style_text_color(s_splash_spin, ui_color_blue(), 0);
-    lv_obj_align(s_splash_spin, LV_ALIGN_CENTER, 0, 14);
+    lv_obj_align_to(s_splash_spin, block, LV_ALIGN_OUT_BOTTOM_MID, 0, UI_SPLASH_GAP);
 
     /* Filho 2: status do ponto. Sem ponteiro estatico — teto de DRAM. */
     lv_obj_t *st = lv_label_create(s_splash);
     lv_label_set_text(st, "");
     lv_obj_set_style_text_color(st, ui_color_white(), 0);
-    lv_obj_align(st, LV_ALIGN_CENTER, 0, 36);
+    lv_obj_align_to(st, s_splash_spin, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
 
     lv_screen_load(s_splash);
     lv_timer_handler();
@@ -1705,6 +1727,22 @@ void ui_boot_step(void)
     const char txt[2] = { frames[s_spin_i], 0 };
     lv_label_set_text(s_splash_spin, txt);
     lv_timer_handler();
+}
+
+static bool splash_may_leave(void)
+{
+    if (s_splash == NULL || s_home == NULL || !ota_recover_boot_done()) {
+        return false;
+    }
+    /* lv_tick comeca em ui_boot_begin; 3 s sem int64 extra na DRAM. */
+    return lv_tick_get() >= (uint32_t)(UI_SPLASH_HOLD_US / 1000);
+}
+
+static void try_leave_splash(void)
+{
+    if (splash_may_leave()) {
+        leave_splash();
+    }
 }
 
 static void leave_splash(void)
@@ -1727,10 +1765,6 @@ static void splash_poll(void)
     if (s_splash == NULL) {
         return;
     }
-    if (ota_recover_boot_done()) {
-        leave_splash();
-        return;
-    }
     uint8_t frame = (uint8_t)((esp_timer_get_time() / 200000) & 3);
     if (s_splash_spin != NULL && frame != s_spin_i) {
         s_spin_i = frame;
@@ -1746,6 +1780,7 @@ static void splash_poll(void)
             lv_label_set_text(st, t);
         }
     }
+    try_leave_splash();
 }
 
 esp_err_t ui_init(void)
@@ -1753,10 +1788,11 @@ esp_err_t ui_init(void)
     build_home();
     ota_health_tick();
     if (ota_recover_boot_done()) {
-        leave_splash();
+        ESP_LOGI(TAG, "UI montada, splash ate 3 s");
     } else {
         ESP_LOGI(TAG, "UI montada, splash ate o ponto de restauracao");
     }
+    try_leave_splash();
     return ESP_OK;
 }
 

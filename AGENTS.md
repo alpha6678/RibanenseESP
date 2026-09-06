@@ -50,7 +50,8 @@ commit da correção.
 - **Tag do OS**: `ribanense-esp-v<semver>`.
 - **Tag de app**: `esp-<slug>-v<semver>`.
 - Pinout só o da E32R28T-1. UI: fundo preto, tintas branco/azul/verde/vermelho,
-  widgets simples, sem animações, flush ≤ 3 FPS. Sem dependência de compilação
+  widgets simples, sem animações, flush ≤ 3 FPS. Única imagem: A4 da marca
+  na splash (sem decoder). Sem dependência de compilação
   entre apps da placa.
 
 ## Como trabalhar neste repositório

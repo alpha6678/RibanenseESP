@@ -52,8 +52,13 @@ CONFIG_LV_USE_CHECKBOX=y
 CONFIG_LV_USE_LABEL=y
 CONFIG_LV_USE_BUTTON=y
 CONFIG_LV_USE_FLEX=y
+# So o A4 const da marca na splash. Sem lodepng/RLE/LZ4: esses
+# descomprimem o quadro na heap e comem o vao do TLS.
+CONFIG_LV_USE_IMAGE=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_DEFAULT_MONTSERRAT_14=y
+# Nome sob o C (~160 px). 14 px fica legendinha; 24 acompanha a largura.
+CONFIG_LV_FONT_MONTSERRAT_24=y
 CONFIG_LV_USE_LOG=n
 CONFIG_LV_USE_SYSMON=n
 CONFIG_LV_USE_SNAPSHOT=n

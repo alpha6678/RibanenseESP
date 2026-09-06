@@ -35,7 +35,8 @@ quando existir, é JSON + HTTP.
 
 ## UI (v0.0.1)
 
-Tema escuro. Fundo sempre preto. Quatro tintas, sem cinzas nem bitmaps:
+Tema escuro. Fundo sempre preto. Quatro tintas, sem cinzas. Sem bitmap
+colorido — só a máscara A4 da marca na splash:
 
 | Cor | Hex | Uso |
 |-----|-----|-----|
@@ -46,7 +47,18 @@ Tema escuro. Fundo sempre preto. Quatro tintas, sem cinzas nem bitmaps:
 | Vermelho | `#C23B22` | erro |
 
 Widgets permitidos: `label`, `button`, `buttonmatrix`, `textarea`, `switch`,
-`bar`, `checkbox`, teclado LVGL. Sem `img`, `chart`, `anim`, `tabview`.
+`bar`, `checkbox`, teclado LVGL. Sem `chart`, `anim`, `tabview`. Um `img` só
+na splash: máscara A4 do C em
+[`components/ui/generated/logo_c.c`](../firmware/ribanense-esp/components/ui/generated/logo_c.c)
+(`const`, recolor branco). Fonte:
+[`assets/branding/celer/mark.png`](../assets/branding/celer/mark.png), gerada
+por [`ferramentas/logo-a4.py`](../ferramentas/logo-a4.py). Sem decoder
+PNG/SVG/RLE/LZ4 — esses materializam o quadro na heap (vão do TLS).
+
+Splash: fundo preto, C ~160 px centrado (40 px de ar nas laterais), nome
+`celer` em Montserrat 24, giro e status embaixo. Fica **no mínimo 3 s** em
+todo ligar; o boot (cartão, Wi-Fi) não espera. Sai quando o ponto de
+restauração já decidiu **e** o relógio passou.
 
 Sem animações nem elevação de tecla. Teclas pretas com borda e letra
 brancas; no toque só a borda da tecla fica amarela. Redesenho da tela no
