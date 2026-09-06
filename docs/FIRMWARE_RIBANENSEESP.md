@@ -30,7 +30,7 @@ quando existir, é JSON + HTTP.
 | Pasta / tag ASCII | `ribanense-esp` |
 | Prefixo de tag | `ribanense-esp-v` |
 | Hardware alvo | E32R28T-1, ESP32-WROOM-32E N4, ST7789 240×320, toque XPT2046 |
-| Flash | 4 MB, dois slots OTA (~1,6 MB cada) |
+| Flash | 4 MB, dois slots OTA de 0x1F0000 (1,94 MB cada) |
 | Dados | microSD FAT32 (SPI), não a flash |
 
 ## UI (v0.0.1)
@@ -99,9 +99,12 @@ Após `GOT_IP` a UI volta à home. Em **Configurações** aparecem o ID
 **Brilho** (10–100%, passo 10; Voltar cancela, Salvar grava no cartão)
 e **Atualizar** (pull). SoftAP sozinho não alcança o GitHub.
 
-SSID/senha ficam no microSD em `/sdcard/os/wifi/networks.json` (até 8
-redes; `last` é a última que ganhou IP). A flash do Wi-Fi continua como
-rede de segurança. O brilho fica em `/sdcard/os/settings.json` e volta
+SSID/senha vivem na **NVS** (até 8 redes; `last` é a última que ganhou IP), com
+`/sdcard/os/wifi/networks.json` como espelho legível. Era o contrário, e o
+cartão virava ponto único de falha da única via de atualização: sem ele a placa
+não conectava nem se atualizava, e nem dava para salvar uma rede nova. Placas
+que vêm de versões antigas migram sozinhas no primeiro boot. Gravar no cartão
+é melhor esforço — só a NVS decide se a operação deu certo. O brilho fica em `/sdcard/os/settings.json` e volta
 depois do reboot. No boot o STA espera `WIFI_EVENT_STA_START` e
 reconecta; se o SD ainda não montou ou o AP sumiu, um timer com backoff
 (5/15/30/60 s) tenta de novo — com a tela fechada também. **Esquecer**
@@ -130,9 +133,59 @@ O HTTPS do GitHub exige `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384`. Com 4096 o
 handshake cai em `-0x7200` (`MBEDTLS_ERR_SSL_INVALID_RECORD`) depois de
 “Certificate verified”.
 
-A imagem nova só é marcada válida ~30 s após a UI subir
-(`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`). Se travar no boot, volta ao
-slot anterior.
+### Quando uma imagem é considerada boa
+
+A imagem recém-instalada sobe **em prova**: se ninguém chamar
+`esp_ota_mark_app_valid_cancel_rollback()`, o próximo reset devolve a placa ao
+slot anterior (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`).
+
+O critério era sobreviver 30 s, e isso aprova uma imagem que boota, desenha a
+tela e não consegue mais baixar nada — foi assim que a placa ficou presa
+precisando de USB. Hoje a prova é **ler o manifesto no GitHub**: quem consegue
+isso consegue se atualizar de novo. Na prática a confirmação sai em ~20 s.
+
+Falta de rede não conta contra a imagem. Se o Wi-Fi nunca associar, a imagem é
+confirmada assim mesmo depois de 10 min — roteador fora de alcance não é defeito
+de imagem, e o rollback só traria outra que também não conecta. O veredito duro
+(reiniciar sem confirmar) só vale para o caso em que houve IP e mesmo assim o
+manifesto não veio.
+
+### Recuperação pelo microSD
+
+A cópia de recuperação fica no cartão, não numa partição da flash. Uma partição
+de fábrica não caberia com folga e resolveria pouco: sendo uma imagem antiga,
+ela ainda dependeria do GitHub para voltar ao dia — inútil quando o problema é
+a rede. Pior, `factory + ota_0` quebra o OTA na segunda atualização (armadilha
+1e).
+
+O anel guarda até **10 versões** confirmadas, cada uma numa pasta:
+
+```
+/sdcard/os/recuperacao/0.4.4/firmware.json
+/sdcard/os/recuperacao/0.4.4/ribanense-esp-0.4.4.bin
+/sdcard/os/recuperacao/0.4.5/...
+```
+
+O par é o mesmo que o `publish` gera. A validação é idêntica à do OTA pela
+rede — produto, assinatura e SHA256 — antes de trocar o slot. A 11ª versão
+confirmada apaga a de menor semver; a que está rodando não sai.
+
+Isso existe para o caso em que N+1 ainda lê o manifesto (passa na prova de
+saúde) e **depois** o download OTA quebra. Com um único `firmware.json` no topo
+da pasta, N desaparecia e só restava USB. Com o anel, o usuário escolhe N na
+tela, sem rede e sem cabo.
+
+A placa acrescenta o ponto sozinha quando a imagem se confirma (ou no boot
+já válido, se aquela versão ainda não estiver no cartão e o manifesto do
+GitHub ainda a descrever). Para repor à mão:
+
+```bat
+rbesp recuperacao E:
+```
+
+Na placa: **Configurações > Restaurar do cartão** — lista, atual marcada, toque
+numa anterior. `GET /status` mostra `slot` e `recuperacao` (lista
+`0.4.5,0.4.4`). `GET /restaurar?v=0.4.4` com a chave LAN faz o mesmo.
 
 Assets: `ribanense-esp-<ver>.bin` + `.sha256`. `rbesp os release`
 preenche `url`/`sha256`/`sig`. A placa que ainda busca o repositório

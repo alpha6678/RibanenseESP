@@ -231,6 +231,16 @@ rbesp setup session
 `logs` faz `GET http://<ip>/log`. `install user` grava o shim no PATH
 do usuário (abre um terminal novo). `session` vale só nesta sessão.
 
+```bat
+rbesp recuperacao E:
+rbesp recuperar E:
+rbesp recovery E:
+```
+
+Acrescenta a versão publicada ao anel de até 10 pontos em
+`E:\os\recuperacao\<semver>\`. Não apaga as outras versões; se passar de 10,
+sai a de menor semver. Sem letra, lista as unidades removíveis.
+
 ## Índice (canônico + sinônimos)
 
 | Canônico | Sinônimos | Forma completa |
@@ -257,6 +267,7 @@ do usuário (abre um terminal novo). `session` vale só nesta sessão.
 | `sign` | — | `rbesp sign` |
 | `verify` | — | `rbesp verify` |
 | `ota check` | `ota`, `ota conferir` | `rbesp ota check [ip]` |
+| `recuperacao` | `recuperar`, `recovery` | `rbesp recuperacao <letra:>` |
 | `logs` | `log` | `rbesp logs <ip>` |
 | `clean` | `limpar` | `rbesp clean [espelho]` |
 | `install` | `setup` | `rbesp install [user\|session]` |
