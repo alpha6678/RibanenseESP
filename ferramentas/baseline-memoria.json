@@ -1,6 +1,6 @@
 {
   "comentario": "Tetos de memoria do OS. Subir so depois de um ensaio de OTA verde em hardware.",
-  "usedDramMax": 96104,
+  "usedDramMax": 96136,
   "blkMinMin": 24000,
   "tlsRecord": 16749,
   "medidoEm": "2026-09-05"
