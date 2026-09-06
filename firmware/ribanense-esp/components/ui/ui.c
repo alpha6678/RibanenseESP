@@ -64,6 +64,7 @@ static lv_obj_t *s_store_status;
 static lv_obj_t *s_store_list;
 static bool s_lan_up;
 static bool s_store_live;
+static bool s_recover_follow;
 static char s_launch_bin[STORE_PATH_MAX];
 static store_app_t s_home_apps[STORE_MAX_APPS];
 static int s_home_app_n;
@@ -76,7 +77,6 @@ static uint8_t s_bright_draft = 100;
 static lv_obj_t *s_recover;
 static lv_obj_t *s_recover_list;
 static lv_obj_t *s_recover_status;
-static bool s_recover_follow;
 
 static void show_wifi(void);
 static void show_home(void);
