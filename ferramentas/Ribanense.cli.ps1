@@ -50,9 +50,9 @@ Comandos:
                                SHA256 e versao dentro do binario publicado
   ota ensaio <ip>              Manda a placa baixar o binario inteiro pelo
                                GitHub e descartar; mede o menor bloco livre
-  recuperacao <letra:>         Copia a imagem publicada e o manifesto assinado
-                               para o microSD; a placa restaura sem rede pelo
-                               menu Configuracoes > Restaurar do cartao
+  recuperacao <letra:>         Acrescenta a imagem publicada ao anel de ate
+                               10 pontos no microSD; a placa escolhe a versao
+                               em Configuracoes > Restaurar do cartao
   logs [ip]                    GET /log da placa na LAN
   clean [espelho]              Remove artifacts/ (e o build do espelho C:\fw)
   install [user|session]       Shim rbesp/rb no PATH
@@ -274,23 +274,23 @@ function Invoke-OsFlash {
     }
 }
 
+function ConvertTo-RecoverSemverParts {
+    param([Parameter(Mandatory)] [string] $Version)
+    $m = [regex]::Match($Version, '^(\d+)\.(\d+)\.(\d+)$')
+    if (-not $m.Success) { return $null }
+    return @([int]$m.Groups[1].Value, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value)
+}
+
 <#
-  Copia o par de recuperacao para o microSD.
+  Acrescenta a versao publicada ao anel de recuperacao no microSD.
 
-  Guardar a copia no cartao em vez de numa particao da flash economiza 1,94 MB
-  e, o que importa mais, funciona sem rede: a fabrica na flash seria uma imagem
-  velha que ainda precisaria do GitHub para voltar ao dia. Aqui vai a versao
-  publicada, e quem repoe e um leitor de cartao no PC -- sem cabo nem esptool.
-
-  O que a placa espera em os\recuperacao\ e exatamente o que o publish gera: o
-  manifesto assinado e o .bin que a url dele aponta.
+  Cada pasta os\recuperacao\<semver>\ guarda o par assinado do publish. O teto
+  e 10: a 11a mais nova apaga a de menor semver. Nao apaga as outras -- o
+  motivo do anel e poder voltar a uma versao em que o OTA ainda funcionava.
 #>
 function Invoke-PrepararRecuperacao {
     param([string] $Drive)
 
-    # O manifesto que vale e o da raiz: e ele que o release atualiza e que o
-    # GitHub serve. O de artifacts\publish fica na versao do ultimo empacotar e
-    # pode estar atras de um release ja feito.
     $osDir = Join-Path $ProjectRoot 'firmware\ribanense-esp'
     $man = Join-Path $osDir 'firmware.json'
     if (-not (Test-Path -LiteralPath $man)) {
@@ -302,9 +302,12 @@ function Invoke-PrepararRecuperacao {
     if (-not (Test-Path -LiteralPath $bin)) {
         throw "Manifesto aponta $nome, que nao esta em $osDir\dist. Falta o release da $($j.version)?"
     }
-    $shaOrigem = (Get-FileHash -LiteralPath $bin -Algorithm SHA256).Hash.ToLower()
-    if ($shaOrigem -ne $j.sha256.ToLower()) {
+    $shaOrigem = (Get-FileHash -LiteralPath $bin -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($shaOrigem -ne $j.sha256.ToLowerInvariant()) {
         throw "O .bin em dist nao bate com o sha256 do manifesto. Repita 'rbesp os release $($j.version)'."
+    }
+    if (-not (ConvertTo-RecoverSemverParts $j.version)) {
+        throw "version '$($j.version)' do manifesto nao e semver x.y.z."
     }
 
     if (-not $Drive) {
@@ -321,25 +324,52 @@ function Invoke-PrepararRecuperacao {
         throw "${letra}: e '$($vol.DriveType)', nao removivel. Recuse por seguranca: confira a letra do microSD."
     }
 
-    $destDir = Join-Path "${letra}:\" 'os\recuperacao'
+    $anel = Join-Path "${letra}:\" 'os\recuperacao'
+    $destDir = Join-Path $anel $j.version
     New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-    # Tira binarios de versoes anteriores: a placa acha o .bin pela url do
-    # manifesto, e sobra no cartao so ocupa espaco e confunde quem for olhar.
-    Get-ChildItem -LiteralPath $destDir -Filter '*.bin' -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -ne $nome } | Remove-Item -Force
+
+    # Layout velho: firmware.json solto no topo. Promove uma vez; bins orfaos
+    # sem manifesto ficam -- nao ha assinatura para inventar pasta.
+    $flatMan = Join-Path $anel 'firmware.json'
+    if (Test-Path -LiteralPath $flatMan) {
+        $flat = Get-Content -LiteralPath $flatMan -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($flat.version -and (ConvertTo-RecoverSemverParts $flat.version)) {
+            $oldDir = Join-Path $anel $flat.version
+            New-Item -ItemType Directory -Path $oldDir -Force | Out-Null
+            $flatNome = ([uri] $flat.url).Segments[-1]
+            $flatBin = Join-Path $anel $flatNome
+            if (Test-Path -LiteralPath $flatBin) {
+                Move-Item -LiteralPath $flatBin -Destination (Join-Path $oldDir $flatNome) -Force
+            }
+            Move-Item -LiteralPath $flatMan -Destination (Join-Path $oldDir 'firmware.json') -Force
+            Write-Host "Migrou layout solto para os\recuperacao\$($flat.version)"
+        }
+    }
 
     Copy-Item -LiteralPath $bin -Destination (Join-Path $destDir $nome) -Force
     Copy-Item -LiteralPath $man -Destination (Join-Path $destDir 'firmware.json') -Force
 
-    $sha = (Get-FileHash -LiteralPath (Join-Path $destDir $nome) -Algorithm SHA256).Hash.ToLower()
-    if ($sha -ne $j.sha256.ToLower()) {
+    $sha = (Get-FileHash -LiteralPath (Join-Path $destDir $nome) -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($sha -ne $j.sha256.ToLowerInvariant()) {
         throw "SHA256 do arquivo copiado nao bate com o manifesto. Cartao com defeito?"
     }
 
+    $pastas = @(Get-ChildItem -LiteralPath $anel -Directory -ErrorAction SilentlyContinue |
+        Where-Object { ConvertTo-RecoverSemverParts $_.Name } |
+        Sort-Object { $p = ConvertTo-RecoverSemverParts $_.Name; $p[0]*1000000 + $p[1]*1000 + $p[2] })
+    while ($pastas.Count -gt 10) {
+        $vitima = $pastas[0]
+        if ($vitima.Name -eq $j.version) { break }
+        Remove-Item -LiteralPath $vitima.FullName -Recurse -Force
+        Write-Host "Anel cheio: apagou $($vitima.Name)"
+        $pastas = @($pastas | Select-Object -Skip 1)
+    }
+
+    $lista = ($pastas | ForEach-Object { $_.Name }) -join ', '
     Write-Host ""
-    Write-Host "Recuperacao $($j.version) gravada em ${letra}:\os\recuperacao" -ForegroundColor Green
+    Write-Host "Ponto $($j.version) gravado em ${letra}:\os\recuperacao\$($j.version)" -ForegroundColor Green
     Write-Host "  $nome  ($('{0:N0}' -f (Get-Item -LiteralPath $bin).Length) B, sha256 conferido)"
-    Write-Host "  firmware.json  (assinado)"
+    Write-Host "  anel: $lista"
     Write-Host ""
     Write-Host "Na placa: Configuracoes > Restaurar do cartao. Nao precisa de rede."
 }
