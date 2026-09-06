@@ -73,6 +73,9 @@ static lv_obj_t *s_bright;
 static lv_obj_t *s_bright_lab;
 static lv_obj_t *s_bright_status;
 static uint8_t s_bright_draft = 100;
+static lv_obj_t *s_recover;
+static lv_obj_t *s_recover_list;
+static lv_obj_t *s_recover_status;
 
 static void show_wifi(void);
 static void show_home(void);
@@ -81,6 +84,8 @@ static void build_settings(void);
 static void show_brightness(void);
 static void destroy_brightness(void);
 static void show_store(void);
+static void show_recover(void);
+static void destroy_recover(void);
 static void show_pass(const char *ssid, uint8_t auth);
 static void wifi_poll(void);
 static void lan_poll(void);
@@ -1131,6 +1136,7 @@ static void show_home(void)
     lv_screen_load(s_home);
     destroy_pass();
     destroy_store();
+    destroy_recover();
     destroy_brightness();
     if (s_wifi) {
         lv_obj_t *old = s_wifi;
@@ -1313,6 +1319,7 @@ static void show_settings(void)
     (void)net_scan_stop();
     destroy_pass();
     destroy_brightness();
+    destroy_recover();
     if (s_settings == NULL) {
         build_settings();
     }
@@ -1366,21 +1373,137 @@ static void on_open_store(lv_event_t *e)
     show_store();
 }
 
-/* Grava no outro slot a imagem que estiver em os/recuperacao/ no cartao. E a
- * saida para a placa que boota e nao consegue mais baixar nada: nao depende de
- * rede, e a copia se repoe por um leitor de cartao no PC. */
+static void destroy_recover(void)
+{
+    if (s_recover) {
+        lv_obj_t *old = s_recover;
+        s_recover = NULL;
+        s_recover_list = NULL;
+        s_recover_status = NULL;
+        lv_obj_delete_async(old);
+    }
+}
+
+static void on_recover_back(lv_event_t *e)
+{
+    (void)e;
+    show_settings();
+}
+
+static void on_recover_pick(lv_event_t *e)
+{
+    int i = (int)(uintptr_t)lv_event_get_user_data(e);
+    char vers[OTA_RECOVER_MAX][OTA_RECOVER_VER_MAX];
+    int n = ota_recover_list(vers, OTA_RECOVER_MAX);
+    if (i < 0 || i >= n) {
+        return;
+    }
+    const char *ver = vers[i];
+    if (strcmp(ver, RIBANENSEESP_VERSION) == 0) {
+        if (s_recover_status != NULL) {
+            lv_label_set_text(s_recover_status, "ja e esta versao");
+            lv_obj_set_style_text_color(s_recover_status, ui_color_white(), 0);
+        }
+        return;
+    }
+    if (s_recover_status != NULL) {
+        char m[40];
+        snprintf(m, sizeof(m), "restaurando %s", ver);
+        lv_label_set_text(s_recover_status, m);
+        lv_obj_set_style_text_color(s_recover_status, ui_color_white(), 0);
+    }
+    if (ota_recover_start(ver) != ESP_OK && s_recover_status != NULL) {
+        lv_label_set_text(s_recover_status, "nao foi");
+        lv_obj_set_style_text_color(s_recover_status, ui_color_red(), 0);
+    }
+}
+
+static void fill_recover_list(void)
+{
+    if (s_recover_list == NULL) {
+        return;
+    }
+    lv_obj_clean(s_recover_list);
+    char vers[OTA_RECOVER_MAX][OTA_RECOVER_VER_MAX];
+    int n = ota_recover_list(vers, OTA_RECOVER_MAX);
+    if (s_recover_status != NULL) {
+        if (n <= 0) {
+            lv_label_set_text(s_recover_status, "nenhum ponto no cartao");
+            lv_obj_set_style_text_color(s_recover_status, ui_color_red(), 0);
+        } else {
+            char sum[28];
+            snprintf(sum, sizeof(sum), "%d ponto(s)", n);
+            lv_label_set_text(s_recover_status, sum);
+            lv_obj_set_style_text_color(s_recover_status, ui_color_green(), 0);
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        bool atual = strcmp(vers[i], RIBANENSEESP_VERSION) == 0;
+        lv_obj_t *row;
+        if (atual) {
+            row = lv_obj_create(s_recover_list);
+            style_row(row);
+        } else {
+            row = lv_button_create(s_recover_list);
+            style_row(row);
+            lv_obj_add_event_cb(row, on_recover_pick, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
+        }
+        char line[40];
+        snprintf(line, sizeof(line), "%s%s", vers[i], atual ? "  atual" : "");
+        lv_obj_t *lab = lv_label_create(row);
+        lv_label_set_text(lab, line);
+        lv_obj_set_style_text_color(lab, atual ? ui_color_green() : ui_color_white(), 0);
+        label_left(lab);
+    }
+}
+
+static void build_recover(void)
+{
+    s_recover = lv_obj_create(NULL);
+    style_screen(s_recover);
+
+    lv_obj_t *bar = lv_obj_create(s_recover);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_width(bar, lv_pct(100));
+    lv_obj_set_height(bar, 36);
+    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(bar, 8, 0);
+
+    lv_obj_t *back = lv_button_create(bar);
+    style_row(back);
+    lv_obj_set_width(back, 72);
+    lv_obj_set_height(back, 32);
+    lv_obj_add_event_cb(back, on_recover_back, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, LV_SYMBOL_LEFT " voltar");
+    lv_obj_set_style_text_color(bl, ui_color_white(), 0);
+    lv_obj_center(bl);
+
+    lv_obj_t *title = lv_label_create(bar);
+    lv_label_set_text(title, "Restaurar");
+    lv_obj_set_style_text_color(title, ui_color_blue(), 0);
+
+    s_recover_status = lv_label_create(s_recover);
+    lv_label_set_text(s_recover_status, "");
+    lv_obj_set_style_text_color(s_recover_status, ui_color_white(), 0);
+
+    s_recover_list = make_scroll_list(s_recover);
+}
+
+static void show_recover(void)
+{
+    destroy_pass();
+    destroy_recover();
+    build_recover();
+    fill_recover_list();
+    lv_screen_load(s_recover);
+}
+
 static void on_open_recover(lv_event_t *e)
 {
     (void)e;
-    char ver[24];
-    if (ota_recover_scan(ver, sizeof(ver)) != ESP_OK) {
-        set_home_ota("sem copia no cartao", ui_color_red());
-        return;
-    }
-    char m[40];
-    snprintf(m, sizeof(m), "restaurando %s", ver);
-    set_home_ota(m, ui_color_white());
-    (void)ota_recover_start();
+    show_recover();
 }
 
 static void build_home(void)
