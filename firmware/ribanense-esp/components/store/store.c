@@ -165,12 +165,7 @@ int store_scan_installed_tax(store_app_t *out, uint8_t *cats, uint8_t *subs, int
     return n;
 }
 
-int store_scan_installed(store_app_t *out, int max)
-{
-    return store_scan_installed_tax(out, NULL, NULL, max);
-}
-
-bool store_find_installed(const char *id, store_app_t *out)
+static bool store_find_installed(const char *id, store_app_t *out)
 {
     if (id == NULL || id[0] == 0 || !storage_ready()) {
         return false;

@@ -42,7 +42,6 @@ typedef struct {
     bool installed;
 } store_remote_t;
 
-int store_scan_installed(store_app_t *out, int max);
 int store_scan_installed_tax(store_app_t *out, uint8_t *cats, uint8_t *subs, int max);
 /* Leitura direta do catalogo em cache. Evita uma segunda copia do vetor na
  * UI; os ponteiros valem ate o proximo store_catalog_start(). */
@@ -52,4 +51,3 @@ void store_catalog_start(void);
 void store_install_start(const char *id);
 store_state_t store_state(void);
 const char *store_message(void);
-bool store_find_installed(const char *id, store_app_t *out);
