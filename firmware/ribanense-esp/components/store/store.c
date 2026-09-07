@@ -1,4 +1,5 @@
 #include "store.h"
+#include "app_taxonomy.h"
 #include "net.h"
 #include "ribanense_esp_version.h"
 #include "storage.h"
@@ -27,7 +28,7 @@
 #define STORE_TASK_STACK 12288
 
 static volatile store_state_t s_state = STORE_IDLE;
-static char s_msg[48] = "loja";
+static char s_msg[40] = "loja";
 static store_remote_t s_cat[STORE_MAX_APPS];
 static int s_cat_n;
 static char s_install_id[STORE_ID_MAX];
@@ -58,7 +59,21 @@ static int read_text(const char *abs, char *out, int cap)
     return n;
 }
 
-static bool parse_app_json(const char *json, store_app_t *app)
+static void tax_from_json(const cJSON *root, uint8_t *cat, uint8_t *sub)
+{
+    const cJSON *jc = cJSON_GetObjectItem(root, "category");
+    const cJSON *js = cJSON_GetObjectItem(root, "subcategory");
+    uint8_t c = app_tax_cat(cJSON_IsString(jc) ? jc->valuestring : NULL);
+    uint8_t s = app_tax_sub(c, cJSON_IsString(js) ? js->valuestring : NULL);
+    if (cat != NULL) {
+        *cat = c;
+    }
+    if (sub != NULL) {
+        *sub = s;
+    }
+}
+
+static bool parse_app_json(const char *json, store_app_t *app, uint8_t *cat, uint8_t *sub)
 {
     cJSON *root = cJSON_Parse(json);
     if (root == NULL) {
@@ -83,11 +98,13 @@ static bool parse_app_json(const char *json, store_app_t *app)
     app->id[STORE_ID_MAX - 1] = 0;
     app->name[STORE_NAME_MAX - 1] = 0;
     app->version[STORE_VER_MAX - 1] = 0;
+    tax_from_json(root, cat, sub);
     cJSON_Delete(root);
     return true;
 }
 
-static bool load_installed(const char *dir_abs, const char *name, store_app_t *app)
+static bool load_installed(const char *dir_abs, const char *name, store_app_t *app,
+                           uint8_t *cat, uint8_t *sub)
 {
     if (name == NULL || name[0] == 0 || name[0] == '.' || app == NULL) {
         return false;
@@ -107,13 +124,13 @@ static bool load_installed(const char *dir_abs, const char *name, store_app_t *a
     if (read_text(man, json, sizeof(json)) < 0) {
         return false;
     }
-    if (!parse_app_json(json, app)) {
+    if (!parse_app_json(json, app, cat, sub)) {
         return false;
     }
     return stat(app->bin, &st) == 0;
 }
 
-int store_scan_installed(store_app_t *out, int max)
+int store_scan_installed_tax(store_app_t *out, uint8_t *cats, uint8_t *subs, int max)
 {
     if (out == NULL || max <= 0 || !storage_ready()) {
         return 0;
@@ -130,13 +147,27 @@ int store_scan_installed(store_app_t *out, int max)
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL && n < max) {
         store_app_t app;
-        if (!load_installed(path, ent->d_name, &app)) {
+        uint8_t cat = 0;
+        uint8_t sub = 0;
+        if (!load_installed(path, ent->d_name, &app, &cat, &sub)) {
             continue;
         }
-        out[n++] = app;
+        out[n] = app;
+        if (cats != NULL) {
+            cats[n] = cat;
+        }
+        if (subs != NULL) {
+            subs[n] = sub;
+        }
+        n++;
     }
     closedir(d);
     return n;
+}
+
+int store_scan_installed(store_app_t *out, int max)
+{
+    return store_scan_installed_tax(out, NULL, NULL, max);
 }
 
 bool store_find_installed(const char *id, store_app_t *out)
@@ -156,7 +187,7 @@ bool store_find_installed(const char *id, store_app_t *out)
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
         store_app_t app;
-        if (!load_installed(path, ent->d_name, &app)) {
+        if (!load_installed(path, ent->d_name, &app, NULL, NULL)) {
             continue;
         }
         if (strcmp(app.id, id) != 0) {
@@ -525,6 +556,7 @@ static bool parse_catalog_file(const char *abs)
             strncpy(r->min_os, cJSON_IsString(min) ? min->valuestring : "", STORE_VER_MAX - 1);
             strncpy(r->url, cJSON_IsString(url) ? url->valuestring : "", STORE_URL_MAX - 1);
             strncpy(r->sha256, cJSON_IsString(sha) ? sha->valuestring : "", sizeof(r->sha256) - 1);
+            tax_from_json(it, &r->cat, &r->sub);
         }
     }
     cJSON_Delete(root);

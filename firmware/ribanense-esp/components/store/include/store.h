@@ -1,7 +1,9 @@
 #pragma once
 
+#include "app_taxonomy.h"
 #include "esp_err.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 /* Metadados na UI do OS (home/catalogo), nao pastas no cartao.
  * Cada slot custa ~376 B de DRAM estatica e o OTA precisa de 16749 B
@@ -33,11 +35,15 @@ typedef struct {
     char version[STORE_VER_MAX];
     char min_os[STORE_VER_MAX];
     char url[STORE_URL_MAX];
-    char sha256[72];
+    /* Hex SHA-256 tem 64 chars; 70 deixa 2 B para cat/sub sem crescer a struct. */
+    char sha256[70];
+    uint8_t cat;
+    uint8_t sub;
     bool installed;
 } store_remote_t;
 
 int store_scan_installed(store_app_t *out, int max);
+int store_scan_installed_tax(store_app_t *out, uint8_t *cats, uint8_t *subs, int max);
 /* Leitura direta do catalogo em cache. Evita uma segunda copia do vetor na
  * UI; os ponteiros valem ate o proximo store_catalog_start(). */
 int store_catalog_count(void);

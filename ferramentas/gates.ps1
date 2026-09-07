@@ -120,6 +120,121 @@ function Add-GateRow {
   -UpdateBaseline grava os numeros medidos como novo teto (use depois de uma
   mudanca que aumenta a memoria de proposito e ja foi validada em hardware).
 #>
+function Get-AppTaxonomy {
+    param([Parameter(Mandatory)] [string] $ProjectRoot)
+    $path = Join-Path $ProjectRoot 'catalog\app-taxonomy.json'
+    if (-not (Test-Path -LiteralPath $path)) {
+        throw "Falta catalog/app-taxonomy.json"
+    }
+    return Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+}
+
+function Test-AppTaxonomy {
+    param([Parameter(Mandatory)] [string] $ProjectRoot)
+    $tax = Get-AppTaxonomy -ProjectRoot $ProjectRoot
+    $cats = @($tax.categories)
+    if ($cats.Count -lt 1 -or $cats.Count -gt 10) {
+        throw "Taxonomia: $($cats.Count) categorias (teto 10, incluindo Outros)."
+    }
+    $last = [string] $cats[-1].id
+    if ($last -ne 'outros') {
+        throw "Taxonomia: a ultima categoria deve ser 'outros' (agora '$last')."
+    }
+    $seenCat = @{}
+    foreach ($c in $cats) {
+        $id = [string] $c.id
+        $name = [string] $c.name
+        if ($id -notmatch '^[a-z][a-z0-9-]*$' -or -not $name) {
+            throw "Taxonomia: categoria invalida ($id / $name)."
+        }
+        if ($seenCat.ContainsKey($id)) {
+            throw "Taxonomia: categoria duplicada '$id'."
+        }
+        $seenCat[$id] = $true
+        $subs = @($c.subs)
+        if ($c.flat) {
+            if ($subs.Count -gt 0) {
+                throw "Taxonomia: '$id' e plana e nao deve ter subcategorias."
+            }
+            continue
+        }
+        if ($subs.Count -lt 1 -or $subs.Count -gt 10) {
+            throw "Taxonomia: '$id' tem $($subs.Count) subcategorias (1-10, incluindo Outros)."
+        }
+        if ([string] $subs[-1].id -ne 'outros') {
+            throw "Taxonomia: ultima subcategoria de '$id' deve ser 'outros'."
+        }
+        $seenSub = @{}
+        foreach ($s in $subs) {
+            $sid = [string] $s.id
+            if ($sid -notmatch '^[a-z][a-z0-9-]*$' -or -not $s.name) {
+                throw "Taxonomia: subcategoria invalida em '$id' ($sid)."
+            }
+            if ($seenSub.ContainsKey($sid)) {
+                throw "Taxonomia: subcategoria duplicada '$id/$sid'."
+            }
+            $seenSub[$sid] = $true
+        }
+    }
+
+    $cPath = Join-Path $ProjectRoot 'firmware\ribanense-esp\components\store\app_taxonomy.c'
+    if (-not (Test-Path -LiteralPath $cPath)) {
+        throw "Falta app_taxonomy.c"
+    }
+    $cText = Get-Content -LiteralPath $cPath -Raw -Encoding UTF8
+    foreach ($c in $cats) {
+        $id = [string] $c.id
+        if ($cText -notmatch ('"' + [regex]::Escape($id) + '"')) {
+            throw "Taxonomia: slug '$id' ausente em app_taxonomy.c"
+        }
+        foreach ($s in @($c.subs)) {
+            $sid = [string] $s.id
+            if ($cText -notmatch ('"' + [regex]::Escape($sid) + '"')) {
+                throw "Taxonomia: slug '$id/$sid' ausente em app_taxonomy.c"
+            }
+        }
+    }
+
+    $known = $seenCat
+    $catPath = Join-Path $ProjectRoot 'catalog\esp-catalog.json'
+    if (Test-Path -LiteralPath $catPath) {
+        $cat = Get-Content -LiteralPath $catPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($app in @($cat.apps)) {
+            $cid = [string] $app.category
+            if (-not $cid -or -not $known.ContainsKey($cid)) {
+                throw "Catalogo: '$($app.id)' category '$cid' fora da taxonomia."
+            }
+            $node = @($cats | Where-Object { $_.id -eq $cid })[0]
+            if ($node.flat) { continue }
+            $sid = [string] $app.subcategory
+            $okSub = @($node.subs | Where-Object { $_.id -eq $sid }).Count -gt 0
+            if (-not $okSub) {
+                throw "Catalogo: '$($app.id)' subcategory '$sid' nao existe em '$cid'."
+            }
+        }
+    }
+
+    $appsRoot = Join-Path $ProjectRoot 'firmware\apps'
+    if (Test-Path -LiteralPath $appsRoot) {
+        foreach ($d in Get-ChildItem -LiteralPath $appsRoot -Directory) {
+            $man = Join-Path $d.FullName 'app.json'
+            if (-not (Test-Path -LiteralPath $man)) { continue }
+            $m = Get-Content -LiteralPath $man -Raw -Encoding UTF8 | ConvertFrom-Json
+            $cid = [string] $m.category
+            if (-not $cid -or -not $known.ContainsKey($cid)) {
+                throw "app.json $($d.Name): category '$cid' fora da taxonomia."
+            }
+            $node = @($cats | Where-Object { $_.id -eq $cid })[0]
+            if ($node.flat) { continue }
+            $sid = [string] $m.subcategory
+            $okSub = @($node.subs | Where-Object { $_.id -eq $sid }).Count -gt 0
+            if (-not $okSub) {
+                throw "app.json $($d.Name): subcategory '$sid' nao existe em '$cid'."
+            }
+        }
+    }
+}
+
 function Invoke-HealthGates {
     param(
         [Parameter(Mandatory)] [string] $ProjectRoot,
@@ -141,6 +256,18 @@ function Invoke-HealthGates {
     $base = Get-GateBaseline -ProjectRoot $ProjectRoot
     Write-Host "Gates de saude — a pergunta e se esta versao ainda se atualiza sozinha." -ForegroundColor Cyan
     Write-Host ""
+
+    $taxOk = $true
+    $taxDetail = 'ok'
+    try {
+        Test-AppTaxonomy -ProjectRoot $ProjectRoot
+    } catch {
+        $taxOk = $false
+        $taxDetail = [string] $_.Exception.Message
+    }
+    Add-GateRow -Board $board -Ok $taxOk -Name 'Taxonomia de apps' -Detail $taxDetail `
+        -Why 'Home e catalogo so mostram slugs desta lista. JSON e app_taxonomy.c precisam coincidir.'
+
 
     # --- 1. DRAM estatica ------------------------------------------------
     $sizes = Get-LinkSizes -MapPath $map -PythonExe $PythonExe

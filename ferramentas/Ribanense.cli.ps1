@@ -487,6 +487,14 @@ function Invoke-Doctor {
     Note (-not $bad) "firmware.json aponta para $($info.githubOwner)/$($info.githubRepo)"
     $cat = Get-Content -LiteralPath (Join-Path $ProjectRoot 'catalog\esp-catalog.json') -Raw
     Note ($cat -notmatch 'BananaSuisa|desenvolvimentoLocatelli') "esp-catalog.json sem owner antigo"
+    $taxOk = $true
+    try {
+        Test-AppTaxonomy -ProjectRoot $ProjectRoot
+    } catch {
+        $taxOk = $false
+        Write-Host "[!!] $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    Note $taxOk "Taxonomia catalog/app-taxonomy.json = app_taxonomy.c"
     if ($script:ok) { Write-Host "`nDoctor OK." -ForegroundColor Green } else { throw "Doctor encontrou problemas." }
 }
 

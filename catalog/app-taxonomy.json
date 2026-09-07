@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "categories": [
+    {
+      "id": "sistema",
+      "name": "Sistema",
+      "subs": [
+        { "id": "info", "name": "Informacoes" },
+        { "id": "arquivos", "name": "Arquivos" },
+        { "id": "diagnostico", "name": "Diagnostico" },
+        { "id": "outros", "name": "Outros" }
+      ]
+    },
+    {
+      "id": "redes",
+      "name": "Redes",
+      "subs": [
+        { "id": "wifi", "name": "Wifi" },
+        { "id": "lan", "name": "Lan" },
+        { "id": "internet", "name": "Internet" },
+        { "id": "servidor", "name": "Servidor" },
+        { "id": "outros", "name": "Outros" }
+      ]
+    },
+    {
+      "id": "bluetooth",
+      "name": "Bluetooth",
+      "subs": [
+        { "id": "scan", "name": "Scan" },
+        { "id": "perifericos", "name": "Perifericos" },
+        { "id": "audio", "name": "Audio" },
+        { "id": "beacon", "name": "Beacon" },
+        { "id": "outros", "name": "Outros" }
+      ]
+    },
+    {
+      "id": "jogos",
+      "name": "Jogos",
+      "subs": [
+        { "id": "arcade", "name": "Arcade" },
+        { "id": "puzzle", "name": "Puzzle" },
+        { "id": "tabuleiro", "name": "Tabuleiro" },
+        { "id": "cartas", "name": "Cartas" },
+        { "id": "outros", "name": "Outros" }
+      ]
+    },
+    {
+      "id": "ia",
+      "name": "IA",
+      "subs": [
+        { "id": "assistente", "name": "Assistente" },
+        { "id": "visao", "name": "Visao" },
+        { "id": "voz", "name": "Voz" },
+        { "id": "modelos", "name": "Modelos" },
+        { "id": "outros", "name": "Outros" }
+      ]
+    },
+    {
+      "id": "hardware",
+      "name": "Hardware",
+      "subs": [
+        { "id": "gpio", "name": "Gpio" },
+        { "id": "serial", "name": "Serial" },
+        { "id": "i2c", "name": "I2c" },
+        { "id": "spi", "name": "Spi" },
+        { "id": "sensores", "name": "Sensores" },
+        { "id": "outros", "name": "Outros" }
+      ]
+    },
+    {
+      "id": "midia",
+      "name": "Midia",
+      "subs": [
+        { "id": "audio", "name": "Audio" },
+        { "id": "led", "name": "Led" },
+        { "id": "outros", "name": "Outros" }
+      ]
+    },
+    {
+      "id": "ferramentas",
+      "name": "Ferramentas",
+      "subs": [
+        { "id": "calculadora", "name": "Calculadora" },
+        { "id": "tempo", "name": "Tempo" },
+        { "id": "conversor", "name": "Conversor" },
+        { "id": "texto", "name": "Texto" },
+        { "id": "outros", "name": "Outros" }
+      ]
+    },
+    {
+      "id": "automacao",
+      "name": "Automacao",
+      "subs": [
+        { "id": "casa", "name": "Casa" },
+        { "id": "mqtt", "name": "Mqtt" },
+        { "id": "reles", "name": "Reles" },
+        { "id": "outros", "name": "Outros" }
+      ]
+    },
+    {
+      "id": "outros",
+      "name": "Outros",
+      "flat": true,
+      "subs": []
+    }
+  ]
+}
