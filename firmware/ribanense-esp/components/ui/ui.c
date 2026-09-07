@@ -750,14 +750,19 @@ static void refresh_home_chrome(void)
     if (s_home_folder_cat == UI_FOLDER_NONE) {
         lv_obj_add_flag(back, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(title, "celer");
+        ui_chrome_mark_brand(title);
+        lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
         return;
     }
     lv_obj_remove_flag(back, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align(back, LV_ALIGN_LEFT_MID, 0, 0);
+    ui_chrome_mark_route(title);
     if (!app_tax_cat_flat(s_home_folder_cat) && s_home_folder_sub != UI_FOLDER_NONE) {
         lv_label_set_text(title, app_tax_sub_name(s_home_folder_cat, s_home_folder_sub));
     } else {
         lv_label_set_text(title, app_tax_cat_name(s_home_folder_cat));
     }
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
 }
 
 static void refresh_home_apps(void)
@@ -1005,7 +1010,7 @@ static void on_wifi_forget(lv_event_t *e)
 static void on_ap_click(lv_event_t *e)
 {
     lv_obj_t *row = lv_event_get_current_target_obj(e);
-    lv_obj_t *lab = lv_obj_get_child(row, 0);
+    lv_obj_t *lab = ui_row_item(row, 0);
     if (lab == NULL) {
         return;
     }
@@ -1032,7 +1037,7 @@ static lv_obj_t *find_ap_row(const char *ssid)
     const uint32_t n = lv_obj_get_child_count(s_wifi_list);
     for (uint32_t i = 0; i < n; i++) {
         lv_obj_t *row = lv_obj_get_child(s_wifi_list, i);
-        lv_obj_t *lab = lv_obj_get_child(row, 0);
+        lv_obj_t *lab = ui_row_item(row, 0);
         if (lab != NULL && strcmp(lv_label_get_text(lab), ssid) == 0) {
             return row;
         }
@@ -1089,12 +1094,12 @@ static void apply_ap_list(void)
             continue;
         }
         lv_obj_set_user_data(row, (void *)(uintptr_t)aps[i].auth);
-        lv_obj_t *name = lv_obj_get_child(row, 0);
+        lv_obj_t *name = ui_row_item(row, 0);
         if (name != NULL) {
             lv_obj_set_style_text_color(name, net_wifi_known(aps[i].ssid) ? ui_color_green() : ui_color_white(),
                                         0);
         }
-        lv_obj_t *sig = lv_obj_get_child(row, 1);
+        lv_obj_t *sig = ui_row_item(row, 1);
         if (sig == NULL) {
             continue;
         }
@@ -1108,7 +1113,7 @@ static void apply_ap_list(void)
 
     for (int i = (int)lv_obj_get_child_count(s_wifi_list) - 1; i >= 0; i--) {
         lv_obj_t *row = lv_obj_get_child(s_wifi_list, (uint32_t)i);
-        lv_obj_t *lab = lv_obj_get_child(row, 0);
+        lv_obj_t *lab = ui_row_item(row, 0);
         if (lab == NULL) {
             continue;
         }
@@ -1830,11 +1835,17 @@ static void build_home(void)
 
     lv_obj_t *bar = ui_chrome_bar(s_home);
     lv_obj_t *back = ui_chrome_icon_btn(bar, LV_SYMBOL_LEFT, on_home_back);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_LEFT_MID, 0, 0);
     lv_obj_add_flag(back, LV_OBJ_FLAG_HIDDEN);
-    (void)ui_chrome_title(bar, "celer");
+    (void)ui_chrome_mark(bar, "celer");
     lv_obj_t *ver = lv_label_create(bar);
     lv_label_set_text(ver, RIBANENSEESP_VERSION);
     lv_obj_set_style_text_color(ver, ui_color_white(), 0);
+    lv_obj_add_flag(ver, LV_OBJ_FLAG_FLOATING);
+    lv_obj_add_flag(ver, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(ver, LV_ALIGN_RIGHT_MID, 0, 0);
 
     s_home_list = make_scroll_list(s_home);
     refresh_home_apps();
