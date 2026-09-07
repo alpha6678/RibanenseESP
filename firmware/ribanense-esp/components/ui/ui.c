@@ -77,6 +77,11 @@ static lv_obj_t *s_store_list;
 static bool s_lan_up;
 static bool s_store_live;
 static bool s_recover_follow;
+#define UI_FOLDER_NONE 0xFF
+static uint8_t s_home_folder_cat = UI_FOLDER_NONE;
+static uint8_t s_home_folder_sub = UI_FOLDER_NONE;
+static uint8_t s_store_folder_cat = UI_FOLDER_NONE;
+static uint8_t s_store_folder_sub = UI_FOLDER_NONE;
 static char s_launch_bin[STORE_PATH_MAX];
 static store_app_t s_home_apps[STORE_MAX_APPS];
 static int s_home_app_n;
@@ -653,6 +658,24 @@ static void start_launch(const char *bin)
     }
 }
 
+static lv_obj_t *list_row(lv_obj_t *list, const char *text, lv_color_t color,
+                          lv_event_cb_t cb, void *ud)
+{
+    lv_obj_t *row = lv_button_create(list);
+    style_row(row);
+    if (cb != NULL) {
+        lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, ud);
+    }
+    lv_obj_t *lab = lv_label_create(row);
+    lv_label_set_text(lab, text);
+    lv_obj_set_style_text_color(lab, color, 0);
+    label_left(lab);
+    return row;
+}
+
+static void on_open_settings(lv_event_t *e);
+static void on_open_store(lv_event_t *e);
+
 static void on_open_installed(lv_event_t *e)
 {
     int idx = (int)(uintptr_t)lv_event_get_user_data(e);
@@ -662,25 +685,116 @@ static void on_open_installed(lv_event_t *e)
     start_launch(s_home_apps[idx].bin);
 }
 
+static void on_home_back(lv_event_t *e)
+{
+    (void)e;
+    if (s_home_folder_sub != UI_FOLDER_NONE) {
+        s_home_folder_sub = UI_FOLDER_NONE;
+    } else {
+        s_home_folder_cat = UI_FOLDER_NONE;
+    }
+    refresh_home_apps();
+}
+
+static void on_home_open_cat(lv_event_t *e)
+{
+    s_home_folder_cat = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+    s_home_folder_sub = UI_FOLDER_NONE;
+    refresh_home_apps();
+}
+
+static void on_home_open_sub(lv_event_t *e)
+{
+    s_home_folder_sub = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+    refresh_home_apps();
+}
+
+static bool tax_has_cat(const uint8_t *cats, int n, uint8_t cat)
+{
+    for (int i = 0; i < n; i++) {
+        if (cats[i] == cat) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool tax_has_sub(const uint8_t *cats, const uint8_t *subs, int n, uint8_t cat, uint8_t sub)
+{
+    for (int i = 0; i < n; i++) {
+        if (cats[i] == cat && subs[i] == sub) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool home_app_visible(const uint8_t *cats, const uint8_t *subs, int i)
+{
+    if (s_home_folder_cat == UI_FOLDER_NONE) {
+        return false;
+    }
+    if (cats[i] != s_home_folder_cat) {
+        return false;
+    }
+    if (app_tax_cat_flat(s_home_folder_cat) || s_home_folder_sub == UI_FOLDER_NONE) {
+        return app_tax_cat_flat(s_home_folder_cat);
+    }
+    return subs[i] == s_home_folder_sub;
+}
+
 static void refresh_home_apps(void)
 {
+    uint8_t cats[STORE_MAX_APPS];
+    uint8_t subs[STORE_MAX_APPS];
+
     if (s_home_list == NULL) {
         return;
     }
-    const uint32_t n = lv_obj_get_child_count(s_home_list);
-    for (int i = (int)n - 1; i >= 2; i--) {
-        lv_obj_t *row = lv_obj_get_child(s_home_list, (uint32_t)i);
-        lv_obj_delete(row);
+    lv_obj_clean(s_home_list);
+    s_home_app_n = store_scan_installed_tax(s_home_apps, cats, subs, STORE_MAX_APPS);
+
+    if (s_home_folder_cat == UI_FOLDER_NONE) {
+        (void)list_row(s_home_list, LV_SYMBOL_SETTINGS "  Configuracoes", ui_color_white(),
+                       on_open_settings, NULL);
+        (void)list_row(s_home_list, LV_SYMBOL_LIST "  Catalogo", ui_color_white(),
+                       on_open_store, NULL);
+        const uint8_t ncat = app_tax_cat_count();
+        for (uint8_t c = 0; c < ncat; c++) {
+            if (!tax_has_cat(cats, s_home_app_n, c)) {
+                continue;
+            }
+            char line[40];
+            snprintf(line, sizeof(line), LV_SYMBOL_DIRECTORY "  %s", app_tax_cat_name(c));
+            (void)list_row(s_home_list, line, ui_color_white(), on_home_open_cat,
+                           (void *)(uintptr_t)c);
+        }
+        return;
     }
-    s_home_app_n = store_scan_installed(s_home_apps, STORE_MAX_APPS);
+
+    (void)list_row(s_home_list, LV_SYMBOL_LEFT "  voltar", ui_color_white(), on_home_back, NULL);
+
+    if (!app_tax_cat_flat(s_home_folder_cat) && s_home_folder_sub == UI_FOLDER_NONE) {
+        const uint8_t nsub = app_tax_sub_count(s_home_folder_cat);
+        for (uint8_t s = 0; s < nsub; s++) {
+            if (!tax_has_sub(cats, subs, s_home_app_n, s_home_folder_cat, s)) {
+                continue;
+            }
+            char line[40];
+            snprintf(line, sizeof(line), LV_SYMBOL_DIRECTORY "  %s",
+                     app_tax_sub_name(s_home_folder_cat, s));
+            (void)list_row(s_home_list, line, ui_color_white(), on_home_open_sub,
+                           (void *)(uintptr_t)s);
+        }
+        return;
+    }
+
     for (int i = 0; i < s_home_app_n; i++) {
-        lv_obj_t *row = lv_button_create(s_home_list);
-        style_row(row);
-        lv_obj_add_event_cb(row, on_open_installed, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
-        lv_obj_t *lab = lv_label_create(row);
-        lv_label_set_text(lab, s_home_apps[i].name);
-        lv_obj_set_style_text_color(lab, ui_color_white(), 0);
-        label_left(lab);
+        if (!home_app_visible(cats, subs, i)) {
+            continue;
+        }
+        (void)list_row(s_home_list, s_home_apps[i].name, ui_color_white(), on_open_installed,
+                       (void *)(uintptr_t)i);
     }
 }
 
@@ -704,6 +818,55 @@ static void on_remote_click(lv_event_t *e)
     store_install_start(app->id);
 }
 
+static void on_store_open_cat(lv_event_t *e)
+{
+    s_store_folder_cat = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+    s_store_folder_sub = UI_FOLDER_NONE;
+    fill_store_list();
+}
+
+static void on_store_open_sub(lv_event_t *e)
+{
+    s_store_folder_sub = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+    fill_store_list();
+}
+
+static bool store_has_cat(uint8_t cat)
+{
+    for (int i = 0; i < s_remote_n; i++) {
+        const store_remote_t *app = store_catalog_at(i);
+        if (app != NULL && app->cat == cat) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool store_has_sub(uint8_t cat, uint8_t sub)
+{
+    for (int i = 0; i < s_remote_n; i++) {
+        const store_remote_t *app = store_catalog_at(i);
+        if (app != NULL && app->cat == cat && app->sub == sub) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool store_app_visible(const store_remote_t *app)
+{
+    if (app == NULL || s_store_folder_cat == UI_FOLDER_NONE) {
+        return false;
+    }
+    if (app->cat != s_store_folder_cat) {
+        return false;
+    }
+    if (app_tax_cat_flat(s_store_folder_cat) || s_store_folder_sub == UI_FOLDER_NONE) {
+        return app_tax_cat_flat(s_store_folder_cat);
+    }
+    return app->sub == s_store_folder_sub;
+}
+
 static void fill_store_list(void)
 {
     if (s_store_list == NULL) {
@@ -712,27 +875,63 @@ static void fill_store_list(void)
     lv_obj_clean(s_store_list);
     s_remote_n = store_catalog_count();
     if (s_remote_n <= 0) {
+        s_store_folder_cat = UI_FOLDER_NONE;
+        s_store_folder_sub = UI_FOLDER_NONE;
         set_store_status(store_message(), ui_color_white());
         return;
     }
-    char sum[24];
-    snprintf(sum, sizeof(sum), "%d apps", s_remote_n);
-    set_store_status(sum, ui_color_green());
+
+    if (s_store_folder_cat == UI_FOLDER_NONE) {
+        char sum[24];
+        snprintf(sum, sizeof(sum), "%d apps", s_remote_n);
+        set_store_status(sum, ui_color_green());
+        const uint8_t ncat = app_tax_cat_count();
+        for (uint8_t c = 0; c < ncat; c++) {
+            if (!store_has_cat(c)) {
+                continue;
+            }
+            char line[40];
+            snprintf(line, sizeof(line), LV_SYMBOL_DIRECTORY "  %s", app_tax_cat_name(c));
+            (void)list_row(s_store_list, line, ui_color_white(), on_store_open_cat,
+                           (void *)(uintptr_t)c);
+        }
+        return;
+    }
+
+    if (!app_tax_cat_flat(s_store_folder_cat) && s_store_folder_sub == UI_FOLDER_NONE) {
+        set_store_status(app_tax_cat_name(s_store_folder_cat), ui_color_white());
+        const uint8_t nsub = app_tax_sub_count(s_store_folder_cat);
+        for (uint8_t s = 0; s < nsub; s++) {
+            if (!store_has_sub(s_store_folder_cat, s)) {
+                continue;
+            }
+            char line[40];
+            snprintf(line, sizeof(line), LV_SYMBOL_DIRECTORY "  %s",
+                     app_tax_sub_name(s_store_folder_cat, s));
+            (void)list_row(s_store_list, line, ui_color_white(), on_store_open_sub,
+                           (void *)(uintptr_t)s);
+        }
+        return;
+    }
+
+    if (app_tax_cat_flat(s_store_folder_cat)) {
+        set_store_status(app_tax_cat_name(s_store_folder_cat), ui_color_white());
+    } else {
+        char path[48];
+        snprintf(path, sizeof(path), "%s / %s", app_tax_cat_name(s_store_folder_cat),
+                 app_tax_sub_name(s_store_folder_cat, s_store_folder_sub));
+        set_store_status(path, ui_color_white());
+    }
     for (int i = 0; i < s_remote_n; i++) {
         const store_remote_t *app = store_catalog_at(i);
-        if (app == NULL) {
-            break;
+        if (!store_app_visible(app)) {
+            continue;
         }
-        lv_obj_t *row = lv_button_create(s_store_list);
-        style_row(row);
-        lv_obj_add_event_cb(row, on_remote_click, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
         char line[80];
         snprintf(line, sizeof(line), "%s  %s", app->name,
                  app->installed ? "ok" : app->version);
-        lv_obj_t *lab = lv_label_create(row);
-        lv_label_set_text(lab, line);
-        lv_obj_set_style_text_color(lab, app->installed ? ui_color_green() : ui_color_white(), 0);
-        label_left(lab);
+        (void)list_row(s_store_list, line, app->installed ? ui_color_green() : ui_color_white(),
+                       on_remote_click, (void *)(uintptr_t)i);
     }
 }
 
@@ -1269,6 +1468,8 @@ static void show_wifi(void)
 static void destroy_store(void)
 {
     s_store_live = false;
+    s_store_folder_cat = UI_FOLDER_NONE;
+    s_store_folder_sub = UI_FOLDER_NONE;
     if (s_store) {
         lv_obj_t *old = s_store;
         s_store = NULL;
@@ -1281,6 +1482,16 @@ static void destroy_store(void)
 static void on_store_back(lv_event_t *e)
 {
     (void)e;
+    if (s_store_folder_sub != UI_FOLDER_NONE) {
+        s_store_folder_sub = UI_FOLDER_NONE;
+        fill_store_list();
+        return;
+    }
+    if (s_store_folder_cat != UI_FOLDER_NONE) {
+        s_store_folder_cat = UI_FOLDER_NONE;
+        fill_store_list();
+        return;
+    }
     show_home();
 }
 
@@ -1754,23 +1965,6 @@ static void build_home(void)
     lv_label_set_text(ver, RIBANENSEESP_VERSION);
 
     s_home_list = make_scroll_list(s_home);
-
-    lv_obj_t *cfg = lv_button_create(s_home_list);
-    style_row(cfg);
-    lv_obj_add_event_cb(cfg, on_open_settings, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *cfgl = lv_label_create(cfg);
-    lv_label_set_text(cfgl, LV_SYMBOL_SETTINGS "  Configuracoes");
-    lv_obj_set_style_text_color(cfgl, ui_color_white(), 0);
-    label_left(cfgl);
-
-    lv_obj_t *cat = lv_button_create(s_home_list);
-    style_row(cat);
-    lv_obj_add_event_cb(cat, on_open_store, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *cl = lv_label_create(cat);
-    lv_label_set_text(cl, LV_SYMBOL_LIST "  Catalogo");
-    lv_obj_set_style_text_color(cl, ui_color_white(), 0);
-    label_left(cl);
-
     refresh_home_apps();
 }
 
