@@ -39,13 +39,15 @@ Comandos:
   app flash <Slug> [COM]       Grava o app no chip (substitui o OS)
   bump os|<Slug> [patch|minor|major]
   publish os|<Slug>|all [--dry-run] [-Yes]
+                               App do cartao: recusa category/subcategory
+                               fora de catalog/app-taxonomy.json
   release os|<Slug> <semver>
   keygen                       Gera chave ECDSA P-256 em secrets/
   sign                         Assina firmware.json com o SHA atual
   verify                       Verifica a assinatura de firmware.json
-  check [--atualizar-baseline] Gates de saude sem placa: memoria estatica
-                               contra o baseline, tamanho contra o slot,
-                               sdkconfig, pilhas e coerencia de versao
+  check [--atualizar-baseline] Gates de saude sem placa: taxonomia de apps,
+                               memoria estatica contra o baseline, tamanho
+                               contra o slot, sdkconfig, pilhas e versao
   ota check [ip]               Refaz o OTA em terra: manifesto, assinatura,
                                SHA256 e versao dentro do binario publicado
   ota ensaio <ip>              Manda a placa baixar o binario inteiro pelo
@@ -582,6 +584,10 @@ function Invoke-PublishAll {
     }
     foreach ($i in $plan) {
         Write-Host ("{0,-12} {1} -> {2}  ({3})" -f $i.Name, $i.Current, $i.Next, $i.Reason)
+    }
+    if (@($plan | Where-Object { $_.Kind -eq 'esp-app' }).Count -gt 0) {
+        Test-AppTaxonomy -ProjectRoot $ProjectRoot
+        Write-Host "Taxonomia de apps ok." -ForegroundColor Green
     }
     if ($DryRun) { return }
     if (-not $Yes) {

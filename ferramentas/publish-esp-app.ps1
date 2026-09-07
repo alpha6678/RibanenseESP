@@ -23,6 +23,7 @@ $ErrorActionPreference = 'Stop'
 $ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $ProjectRoot = Split-Path -Parent $ScriptRoot
 . (Join-Path $ScriptRoot 'esp-idf-env.ps1')
+. (Join-Path $ScriptRoot 'gates.ps1')
 
 $appDir = Join-Path $ProjectRoot "firmware\apps\$App"
 $manifestPath = Join-Path $appDir 'app.json'
@@ -30,6 +31,7 @@ $sdkSrc = Join-Path $ProjectRoot 'firmware\esp-sdk'
 if (-not (Test-Path -LiteralPath $manifestPath)) {
     throw "App da placa nao encontrado: $appDir (falta app.json)."
 }
+Test-AppTaxonomy -ProjectRoot $ProjectRoot
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 if (-not $Version) {
