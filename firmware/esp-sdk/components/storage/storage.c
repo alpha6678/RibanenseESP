@@ -205,21 +205,6 @@ esp_err_t storage_read_text(const char *rel_path, char *out, size_t max)
     return ESP_OK;
 }
 
-esp_err_t storage_remove(const char *rel_path)
-{
-    if (!s_ready || rel_path == NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    char path[160];
-    if (storage_abs(rel_path, path, sizeof(path)) != ESP_OK) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    if (unlink(path) != 0 && errno != ENOENT) {
-        return ESP_FAIL;
-    }
-    return ESP_OK;
-}
-
 bool storage_exists(const char *rel_path)
 {
     if (!s_ready || rel_path == NULL) {
