@@ -1957,12 +1957,24 @@ static void build_home(void)
     s_home = lv_obj_create(NULL);
     style_screen(s_home);
 
-    lv_obj_t *title = lv_label_create(s_home);
-    lv_label_set_text(title, RIBANENSEESP_PRODUCT);
-    lv_obj_set_style_text_color(title, ui_color_green(), 0);
+    lv_obj_t *bar = lv_obj_create(s_home);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_width(bar, lv_pct(100));
+    lv_obj_set_height(bar, 36);
+    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
 
-    lv_obj_t *ver = lv_label_create(s_home);
+    lv_obj_t *title = lv_label_create(bar);
+    lv_label_set_text(title, "celer");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(title, ui_color_white(), 0);
+    lv_obj_set_style_text_outline_stroke_width(title, 1, 0);
+    lv_obj_set_style_text_outline_stroke_color(title, ui_color_white(), 0);
+
+    lv_obj_t *ver = lv_label_create(bar);
     lv_label_set_text(ver, RIBANENSEESP_VERSION);
+    lv_obj_set_style_text_color(ver, ui_color_white(), 0);
 
     s_home_list = make_scroll_list(s_home);
     refresh_home_apps();
@@ -2022,7 +2034,7 @@ static void build_settings(void)
     style_row(br);
     lv_obj_add_event_cb(br, on_open_brightness, LV_EVENT_CLICKED, NULL);
     lv_obj_t *brl = lv_label_create(br);
-    lv_label_set_text(brl, "Brilho");
+    lv_label_set_text(brl, LV_SYMBOL_EYE_OPEN "  Brilho");
     lv_obj_set_style_text_color(brl, ui_color_white(), 0);
     label_left(brl);
 
