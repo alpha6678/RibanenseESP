@@ -7,7 +7,7 @@
 #include "settings.h"
 #include "shell.h"
 #include "store.h"
-#include "ui_palette.h"
+#include "ui_chrome.h"
 #include "logo_c.h"
 
 #include <stddef.h>
@@ -26,7 +26,6 @@
 #include "lvgl.h"
 
 #define BUF_LINES     20
-#define ROW_H         48
 /* 4 linhas de teclas em 240 px de largura: com 10 colunas a tecla tem ~22 px.
  * 100 px de altura deixa a tecla quadrada. Os 112 px do calculo por
  * porcentagem davam 24x28 e a tecla saia esticada na vertical. */
@@ -167,26 +166,16 @@ static void style_screen(lv_obj_t *scr)
     lv_obj_set_style_pad_row(scr, 4, 0);
 }
 
-static void style_row(lv_obj_t *obj)
+static lv_obj_t *make_chrome(lv_obj_t *parent, const char *title, lv_event_cb_t on_back,
+                            lv_event_cb_t on_refresh)
 {
-    lv_obj_remove_style_all(obj);
-    lv_obj_set_width(obj, lv_pct(100));
-    lv_obj_set_height(obj, ROW_H);
-    lv_obj_set_style_bg_color(obj, ui_color_black(), 0);
-    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(obj, ui_color_white(), 0);
-    lv_obj_set_style_border_width(obj, 1, 0);
-    lv_obj_set_style_radius(obj, 0, 0);
-    lv_obj_set_style_pad_left(obj, 6, 0);
-    lv_obj_set_style_pad_right(obj, 6, 0);
-    lv_obj_set_style_shadow_width(obj, 0, 0);
-    lv_obj_set_style_outline_width(obj, 0, 0);
-    lv_obj_set_style_transform_width(obj, 0, 0);
-    lv_obj_set_style_transform_height(obj, 0, 0);
-    lv_obj_set_style_border_color(obj, ui_color_yellow(), LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(obj, 2, LV_STATE_PRESSED);
-    lv_obj_set_flex_flow(obj, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(obj, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t *bar = ui_chrome_bar(parent);
+    (void)ui_chrome_icon_btn(bar, LV_SYMBOL_LEFT, on_back);
+    (void)ui_chrome_title(bar, title);
+    if (on_refresh != NULL) {
+        (void)ui_chrome_icon_btn(bar, LV_SYMBOL_REFRESH, on_refresh);
+    }
+    return bar;
 }
 
 static void label_left(lv_obj_t *lab)
@@ -531,9 +520,9 @@ static void set_home_wifi(const char *ip)
     }
     char text[40];
     if (ip != NULL && ip[0] != 0) {
-        snprintf(text, sizeof(text), LV_SYMBOL_WIFI "  %s", ip);
+        snprintf(text, sizeof(text), "%s", ip);
     } else {
-        snprintf(text, sizeof(text), LV_SYMBOL_WIFI "  Wi-Fi");
+        snprintf(text, sizeof(text), "Wi-Fi");
     }
     label_text(s_home_wifi_lab, text);
     label_color(s_home_wifi_lab, (ip != NULL && ip[0] != 0) ? ui_color_green() : ui_color_white());
@@ -662,7 +651,7 @@ static lv_obj_t *list_row(lv_obj_t *list, const char *text, lv_color_t color,
                           lv_event_cb_t cb, void *ud)
 {
     lv_obj_t *row = lv_button_create(list);
-    style_row(row);
+    ui_style_row(row);
     if (cb != NULL) {
         lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, ud);
     }
@@ -743,6 +732,34 @@ static bool home_app_visible(const uint8_t *cats, const uint8_t *subs, int i)
     return subs[i] == s_home_folder_sub;
 }
 
+/* Filhos da barra da home (sem ponteiro estatico): 0 voltar, 1 titulo, 2 versao. */
+static void refresh_home_chrome(void)
+{
+    if (s_home == NULL) {
+        return;
+    }
+    lv_obj_t *bar = lv_obj_get_child(s_home, 0);
+    if (bar == NULL) {
+        return;
+    }
+    lv_obj_t *back = lv_obj_get_child(bar, 0);
+    lv_obj_t *title = lv_obj_get_child(bar, 1);
+    if (back == NULL || title == NULL) {
+        return;
+    }
+    if (s_home_folder_cat == UI_FOLDER_NONE) {
+        lv_obj_add_flag(back, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(title, "celer");
+        return;
+    }
+    lv_obj_remove_flag(back, LV_OBJ_FLAG_HIDDEN);
+    if (!app_tax_cat_flat(s_home_folder_cat) && s_home_folder_sub != UI_FOLDER_NONE) {
+        lv_label_set_text(title, app_tax_sub_name(s_home_folder_cat, s_home_folder_sub));
+    } else {
+        lv_label_set_text(title, app_tax_cat_name(s_home_folder_cat));
+    }
+}
+
 static void refresh_home_apps(void)
 {
     uint8_t cats[STORE_MAX_APPS];
@@ -751,28 +768,23 @@ static void refresh_home_apps(void)
     if (s_home_list == NULL) {
         return;
     }
+    refresh_home_chrome();
     lv_obj_clean(s_home_list);
     s_home_app_n = store_scan_installed_tax(s_home_apps, cats, subs, STORE_MAX_APPS);
 
     if (s_home_folder_cat == UI_FOLDER_NONE) {
-        (void)list_row(s_home_list, LV_SYMBOL_SETTINGS "  Configuracoes", ui_color_white(),
-                       on_open_settings, NULL);
-        (void)list_row(s_home_list, LV_SYMBOL_LIST "  Catalogo", ui_color_white(),
-                       on_open_store, NULL);
+        (void)list_row(s_home_list, "Configuracoes", ui_color_white(), on_open_settings, NULL);
+        (void)list_row(s_home_list, "Catalogo", ui_color_white(), on_open_store, NULL);
         const uint8_t ncat = app_tax_cat_count();
         for (uint8_t c = 0; c < ncat; c++) {
             if (!tax_has_cat(cats, s_home_app_n, c)) {
                 continue;
             }
-            char line[40];
-            snprintf(line, sizeof(line), LV_SYMBOL_DIRECTORY "  %s", app_tax_cat_name(c));
-            (void)list_row(s_home_list, line, ui_color_white(), on_home_open_cat,
+            (void)list_row(s_home_list, app_tax_cat_name(c), ui_color_white(), on_home_open_cat,
                            (void *)(uintptr_t)c);
         }
         return;
     }
-
-    (void)list_row(s_home_list, LV_SYMBOL_LEFT "  voltar", ui_color_white(), on_home_back, NULL);
 
     if (!app_tax_cat_flat(s_home_folder_cat) && s_home_folder_sub == UI_FOLDER_NONE) {
         const uint8_t nsub = app_tax_sub_count(s_home_folder_cat);
@@ -780,11 +792,8 @@ static void refresh_home_apps(void)
             if (!tax_has_sub(cats, subs, s_home_app_n, s_home_folder_cat, s)) {
                 continue;
             }
-            char line[40];
-            snprintf(line, sizeof(line), LV_SYMBOL_DIRECTORY "  %s",
-                     app_tax_sub_name(s_home_folder_cat, s));
-            (void)list_row(s_home_list, line, ui_color_white(), on_home_open_sub,
-                           (void *)(uintptr_t)s);
+            (void)list_row(s_home_list, app_tax_sub_name(s_home_folder_cat, s), ui_color_white(),
+                           on_home_open_sub, (void *)(uintptr_t)s);
         }
         return;
     }
@@ -890,9 +899,7 @@ static void fill_store_list(void)
             if (!store_has_cat(c)) {
                 continue;
             }
-            char line[40];
-            snprintf(line, sizeof(line), LV_SYMBOL_DIRECTORY "  %s", app_tax_cat_name(c));
-            (void)list_row(s_store_list, line, ui_color_white(), on_store_open_cat,
+            (void)list_row(s_store_list, app_tax_cat_name(c), ui_color_white(), on_store_open_cat,
                            (void *)(uintptr_t)c);
         }
         return;
@@ -905,11 +912,8 @@ static void fill_store_list(void)
             if (!store_has_sub(s_store_folder_cat, s)) {
                 continue;
             }
-            char line[40];
-            snprintf(line, sizeof(line), LV_SYMBOL_DIRECTORY "  %s",
-                     app_tax_sub_name(s_store_folder_cat, s));
-            (void)list_row(s_store_list, line, ui_color_white(), on_store_open_sub,
-                           (void *)(uintptr_t)s);
+            (void)list_row(s_store_list, app_tax_sub_name(s_store_folder_cat, s), ui_color_white(),
+                           on_store_open_sub, (void *)(uintptr_t)s);
         }
         return;
     }
@@ -975,12 +979,12 @@ static void refresh_forget_row(void)
         lv_obj_set_height(s_wifi_forget, 0);
         return;
     }
-    char text[48];
-    snprintf(text, sizeof(text), "esquecer %s", ssid);
+    char text[56];
+    snprintf(text, sizeof(text), LV_SYMBOL_TRASH "  esquecer %s", ssid);
     if (strcmp(lv_label_get_text(s_wifi_forget_lab), text) != 0) {
         lv_label_set_text(s_wifi_forget_lab, text);
     }
-    lv_obj_set_height(s_wifi_forget, ROW_H);
+    lv_obj_set_height(s_wifi_forget, UI_ROW_H);
     lv_obj_remove_flag(s_wifi_forget, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -1039,7 +1043,7 @@ static lv_obj_t *find_ap_row(const char *ssid)
 static void add_ap_row(const net_ap_t *ap)
 {
     lv_obj_t *row = lv_button_create(s_wifi_list);
-    style_row(row);
+    ui_style_row(row);
     lv_obj_set_user_data(row, (void *)(uintptr_t)ap->auth);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
@@ -1214,44 +1218,14 @@ static void build_wifi(void)
     s_wifi = lv_obj_create(NULL);
     style_screen(s_wifi);
 
-    lv_obj_t *bar = lv_obj_create(s_wifi);
-    lv_obj_remove_style_all(bar);
-    lv_obj_set_width(bar, lv_pct(100));
-    lv_obj_set_height(bar, 36);
-    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-
-    lv_obj_t *back = lv_button_create(bar);
-    style_row(back);
-    lv_obj_set_width(back, 72);
-    lv_obj_set_height(back, 32);
-    lv_obj_add_event_cb(back, on_wifi_back, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *bl = lv_label_create(back);
-    lv_label_set_text(bl, LV_SYMBOL_LEFT " voltar");
-    lv_obj_set_style_text_color(bl, ui_color_white(), 0);
-    lv_obj_center(bl);
-
-    lv_obj_t *title = lv_label_create(bar);
-    lv_label_set_text(title, "Wi-Fi");
-    lv_obj_set_style_text_color(title, ui_color_blue(), 0);
-
-    lv_obj_t *refresh = lv_button_create(bar);
-    style_row(refresh);
-    lv_obj_set_width(refresh, 40);
-    lv_obj_set_height(refresh, 32);
-    lv_obj_add_event_cb(refresh, on_wifi_refresh, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *rl = lv_label_create(refresh);
-    lv_label_set_text(rl, LV_SYMBOL_REFRESH);
-    lv_obj_set_style_text_color(rl, ui_color_white(), 0);
-    lv_obj_center(rl);
+    (void)make_chrome(s_wifi, "Wi-Fi", on_wifi_back, on_wifi_refresh);
 
     s_wifi_status = lv_label_create(s_wifi);
     lv_label_set_text(s_wifi_status, "");
     lv_obj_set_style_text_color(s_wifi_status, ui_color_white(), 0);
 
     s_wifi_forget = lv_button_create(s_wifi);
-    style_row(s_wifi_forget);
+    ui_style_row(s_wifi_forget);
     lv_obj_add_event_cb(s_wifi_forget, on_wifi_forget, LV_EVENT_CLICKED, NULL);
     s_wifi_forget_lab = lv_label_create(s_wifi_forget);
     lv_label_set_text(s_wifi_forget_lab, "esquecer");
@@ -1345,52 +1319,22 @@ static void build_pass(void)
     s_pass = lv_obj_create(NULL);
     style_screen(s_pass);
 
-    lv_obj_t *bar = lv_obj_create(s_pass);
-    lv_obj_remove_style_all(bar);
-    lv_obj_set_width(bar, lv_pct(100));
-    lv_obj_set_height(bar, 36);
-    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(bar, 8, 0);
-
-    lv_obj_t *back = lv_button_create(bar);
-    style_row(back);
-    lv_obj_set_width(back, 72);
-    lv_obj_set_height(back, 32);
-    lv_obj_add_event_cb(back, on_pass_back, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *bl = lv_label_create(back);
-    lv_label_set_text(bl, LV_SYMBOL_LEFT " voltar");
-    lv_obj_set_style_text_color(bl, ui_color_white(), 0);
-    lv_obj_center(bl);
-
-    lv_obj_t *ssid = lv_label_create(bar);
-    lv_label_set_text(ssid, s_sel_ssid);
-    lv_label_set_long_mode(ssid, LV_LABEL_LONG_CLIP);
-    lv_obj_set_flex_grow(ssid, 1);
-    lv_obj_set_style_text_color(ssid, ui_color_blue(), 0);
+    (void)make_chrome(s_pass, s_sel_ssid, on_pass_back, NULL);
 
     s_pass_status = lv_label_create(s_pass);
     lv_label_set_text(s_pass_status, "senha da rede");
     lv_obj_set_style_text_color(s_pass_status, ui_color_white(), 0);
 
     s_pass_ta = lv_textarea_create(s_pass);
-    lv_obj_set_width(s_pass_ta, lv_pct(100));
-    lv_obj_set_height(s_pass_ta, 40);
     lv_textarea_set_one_line(s_pass_ta, true);
     lv_textarea_set_password_mode(s_pass_ta, true);
     lv_textarea_set_max_length(s_pass_ta, NET_PASS_MAX - 1);
     lv_textarea_set_placeholder_text(s_pass_ta, "senha...");
-    lv_obj_set_style_bg_color(s_pass_ta, ui_color_black(), 0);
-    lv_obj_set_style_text_color(s_pass_ta, ui_color_white(), 0);
-    lv_obj_set_style_border_color(s_pass_ta, ui_color_white(), 0);
-    lv_obj_set_style_border_width(s_pass_ta, 1, 0);
-    lv_obj_set_style_radius(s_pass_ta, 0, 0);
+    ui_style_field(s_pass_ta);
     lv_obj_add_event_cb(s_pass_ta, on_ta_open_kb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *btn = lv_button_create(s_pass);
-    style_row(btn);
-    lv_obj_set_style_bg_color(btn, ui_color_blue(), 0);
-    lv_obj_set_height(btn, 40);
+    ui_style_row(btn);
     lv_obj_add_event_cb(btn, on_pass_connect, LV_EVENT_CLICKED, NULL);
     lv_obj_t *tl = lv_label_create(btn);
     lv_label_set_text(tl, "Conectar");
@@ -1399,11 +1343,10 @@ static void build_pass(void)
 
     if (net_wifi_known(s_sel_ssid)) {
         lv_obj_t *forget = lv_button_create(s_pass);
-        style_row(forget);
-        lv_obj_set_height(forget, 40);
+        ui_style_row(forget);
         lv_obj_add_event_cb(forget, on_pass_forget, LV_EVENT_CLICKED, NULL);
         lv_obj_t *fl = lv_label_create(forget);
-        lv_label_set_text(fl, "Esquecer");
+        lv_label_set_text(fl, LV_SYMBOL_TRASH "  Esquecer");
         lv_obj_set_style_text_color(fl, ui_color_white(), 0);
         lv_obj_center(fl);
     }
@@ -1510,37 +1453,7 @@ static void build_store(void)
     s_store = lv_obj_create(NULL);
     style_screen(s_store);
 
-    lv_obj_t *bar = lv_obj_create(s_store);
-    lv_obj_remove_style_all(bar);
-    lv_obj_set_width(bar, lv_pct(100));
-    lv_obj_set_height(bar, 36);
-    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-
-    lv_obj_t *back = lv_button_create(bar);
-    style_row(back);
-    lv_obj_set_width(back, 72);
-    lv_obj_set_height(back, 32);
-    lv_obj_add_event_cb(back, on_store_back, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *bl = lv_label_create(back);
-    lv_label_set_text(bl, LV_SYMBOL_LEFT " voltar");
-    lv_obj_set_style_text_color(bl, ui_color_white(), 0);
-    lv_obj_center(bl);
-
-    lv_obj_t *title = lv_label_create(bar);
-    lv_label_set_text(title, "Catalogo");
-    lv_obj_set_style_text_color(title, ui_color_blue(), 0);
-
-    lv_obj_t *refresh = lv_button_create(bar);
-    style_row(refresh);
-    lv_obj_set_width(refresh, 40);
-    lv_obj_set_height(refresh, 32);
-    lv_obj_add_event_cb(refresh, on_store_refresh, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *rl = lv_label_create(refresh);
-    lv_label_set_text(rl, LV_SYMBOL_REFRESH);
-    lv_obj_set_style_text_color(rl, ui_color_white(), 0);
-    lv_obj_center(rl);
+    (void)make_chrome(s_store, "Catalogo", on_store_back, on_store_refresh);
 
     s_store_status = lv_label_create(s_store);
     lv_label_set_text(s_store_status, "");
@@ -1671,27 +1584,7 @@ static void build_brightness(void)
     s_bright = lv_obj_create(NULL);
     style_screen(s_bright);
 
-    lv_obj_t *bar = lv_obj_create(s_bright);
-    lv_obj_remove_style_all(bar);
-    lv_obj_set_width(bar, lv_pct(100));
-    lv_obj_set_height(bar, 36);
-    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(bar, 8, 0);
-
-    lv_obj_t *back = lv_button_create(bar);
-    style_row(back);
-    lv_obj_set_width(back, 72);
-    lv_obj_set_height(back, 32);
-    lv_obj_add_event_cb(back, on_bright_back, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *bl = lv_label_create(back);
-    lv_label_set_text(bl, LV_SYMBOL_LEFT " voltar");
-    lv_obj_set_style_text_color(bl, ui_color_white(), 0);
-    lv_obj_center(bl);
-
-    lv_obj_t *title = lv_label_create(bar);
-    lv_label_set_text(title, "Brilho");
-    lv_obj_set_style_text_color(title, ui_color_blue(), 0);
+    (void)make_chrome(s_bright, "Brilho", on_bright_back, NULL);
 
     s_bright_lab = lv_label_create(s_bright);
     lv_obj_set_style_text_color(s_bright_lab, ui_color_white(), 0);
@@ -1700,13 +1593,13 @@ static void build_brightness(void)
     lv_obj_t *row = lv_obj_create(s_bright);
     lv_obj_remove_style_all(row);
     lv_obj_set_width(row, lv_pct(100));
-    lv_obj_set_height(row, ROW_H);
+    lv_obj_set_height(row, UI_ROW_H);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(row, 4, 0);
 
     lv_obj_t *minus = lv_button_create(row);
-    style_row(minus);
+    ui_style_row(minus);
     lv_obj_set_flex_grow(minus, 1);
     lv_obj_set_width(minus, 0);
     lv_obj_add_event_cb(minus, on_bright_minus, LV_EVENT_CLICKED, NULL);
@@ -1716,7 +1609,7 @@ static void build_brightness(void)
     lv_obj_center(ml);
 
     lv_obj_t *plus = lv_button_create(row);
-    style_row(plus);
+    ui_style_row(plus);
     lv_obj_set_flex_grow(plus, 1);
     lv_obj_set_width(plus, 0);
     lv_obj_add_event_cb(plus, on_bright_plus, LV_EVENT_CLICKED, NULL);
@@ -1726,12 +1619,10 @@ static void build_brightness(void)
     lv_obj_center(pl);
 
     lv_obj_t *save = lv_button_create(s_bright);
-    style_row(save);
-    lv_obj_set_style_bg_color(save, ui_color_blue(), 0);
-    lv_obj_set_height(save, 40);
+    ui_style_row(save);
     lv_obj_add_event_cb(save, on_bright_save, LV_EVENT_CLICKED, NULL);
     lv_obj_t *sl = lv_label_create(save);
-    lv_label_set_text(sl, "Salvar");
+    lv_label_set_text(sl, LV_SYMBOL_SAVE "  Salvar");
     lv_obj_set_style_text_color(sl, ui_color_white(), 0);
     lv_obj_center(sl);
 
@@ -1886,10 +1777,10 @@ static void fill_recover_list(void)
         lv_obj_t *row;
         if (atual) {
             row = lv_obj_create(s_recover_list);
-            style_row(row);
+            ui_style_row(row);
         } else {
             row = lv_button_create(s_recover_list);
-            style_row(row);
+            ui_style_row(row);
             lv_obj_add_event_cb(row, on_recover_pick, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
         }
         char line[40];
@@ -1906,27 +1797,7 @@ static void build_recover(void)
     s_recover = lv_obj_create(NULL);
     style_screen(s_recover);
 
-    lv_obj_t *bar = lv_obj_create(s_recover);
-    lv_obj_remove_style_all(bar);
-    lv_obj_set_width(bar, lv_pct(100));
-    lv_obj_set_height(bar, 36);
-    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(bar, 8, 0);
-
-    lv_obj_t *back = lv_button_create(bar);
-    style_row(back);
-    lv_obj_set_width(back, 72);
-    lv_obj_set_height(back, 32);
-    lv_obj_add_event_cb(back, on_recover_back, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *bl = lv_label_create(back);
-    lv_label_set_text(bl, LV_SYMBOL_LEFT " voltar");
-    lv_obj_set_style_text_color(bl, ui_color_white(), 0);
-    lv_obj_center(bl);
-
-    lv_obj_t *title = lv_label_create(bar);
-    lv_label_set_text(title, "Restaurar");
-    lv_obj_set_style_text_color(title, ui_color_blue(), 0);
+    (void)make_chrome(s_recover, "Restaurar", on_recover_back, NULL);
 
     s_recover_status = lv_label_create(s_recover);
     lv_label_set_text(s_recover_status, "");
@@ -1957,21 +1828,10 @@ static void build_home(void)
     s_home = lv_obj_create(NULL);
     style_screen(s_home);
 
-    lv_obj_t *bar = lv_obj_create(s_home);
-    lv_obj_remove_style_all(bar);
-    lv_obj_set_width(bar, lv_pct(100));
-    lv_obj_set_height(bar, 36);
-    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-
-    lv_obj_t *title = lv_label_create(bar);
-    lv_label_set_text(title, "celer");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(title, ui_color_white(), 0);
-    lv_obj_set_style_text_outline_stroke_width(title, 1, 0);
-    lv_obj_set_style_text_outline_stroke_color(title, ui_color_white(), 0);
-
+    lv_obj_t *bar = ui_chrome_bar(s_home);
+    lv_obj_t *back = ui_chrome_icon_btn(bar, LV_SYMBOL_LEFT, on_home_back);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_HIDDEN);
+    (void)ui_chrome_title(bar, "celer");
     lv_obj_t *ver = lv_label_create(bar);
     lv_label_set_text(ver, RIBANENSEESP_VERSION);
     lv_obj_set_style_text_color(ver, ui_color_white(), 0);
@@ -1985,27 +1845,7 @@ static void build_settings(void)
     s_settings = lv_obj_create(NULL);
     style_screen(s_settings);
 
-    lv_obj_t *bar = lv_obj_create(s_settings);
-    lv_obj_remove_style_all(bar);
-    lv_obj_set_width(bar, lv_pct(100));
-    lv_obj_set_height(bar, 36);
-    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(bar, 8, 0);
-
-    lv_obj_t *back = lv_button_create(bar);
-    style_row(back);
-    lv_obj_set_width(back, 72);
-    lv_obj_set_height(back, 32);
-    lv_obj_add_event_cb(back, on_settings_back, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *bl = lv_label_create(back);
-    lv_label_set_text(bl, LV_SYMBOL_LEFT " voltar");
-    lv_obj_set_style_text_color(bl, ui_color_white(), 0);
-    lv_obj_center(bl);
-
-    lv_obj_t *title = lv_label_create(bar);
-    lv_label_set_text(title, "Configuracoes");
-    lv_obj_set_style_text_color(title, ui_color_blue(), 0);
+    (void)make_chrome(s_settings, "Configuracoes", on_settings_back, NULL);
 
     char devid[16];
     char lankey[16];
@@ -2023,23 +1863,23 @@ static void build_settings(void)
     lv_obj_t *list = make_scroll_list(s_settings);
 
     lv_obj_t *wifi = lv_button_create(list);
-    style_row(wifi);
+    ui_style_row(wifi);
     lv_obj_add_event_cb(wifi, on_open_wifi, LV_EVENT_CLICKED, NULL);
     s_home_wifi_lab = lv_label_create(wifi);
-    lv_label_set_text(s_home_wifi_lab, LV_SYMBOL_WIFI "  Wi-Fi");
+    lv_label_set_text(s_home_wifi_lab, "Wi-Fi");
     lv_obj_set_style_text_color(s_home_wifi_lab, ui_color_white(), 0);
     label_left(s_home_wifi_lab);
 
     lv_obj_t *br = lv_button_create(list);
-    style_row(br);
+    ui_style_row(br);
     lv_obj_add_event_cb(br, on_open_brightness, LV_EVENT_CLICKED, NULL);
     lv_obj_t *brl = lv_label_create(br);
-    lv_label_set_text(brl, LV_SYMBOL_EYE_OPEN "  Brilho");
+    lv_label_set_text(brl, "Brilho");
     lv_obj_set_style_text_color(brl, ui_color_white(), 0);
     label_left(brl);
 
     lv_obj_t *upd = lv_button_create(list);
-    style_row(upd);
+    ui_style_row(upd);
     lv_obj_add_event_cb(upd, on_open_ota, LV_EVENT_CLICKED, NULL);
     s_home_upd_lab = lv_label_create(upd);
     lv_label_set_text(s_home_upd_lab, LV_SYMBOL_REFRESH "  Atualizar");
@@ -2047,7 +1887,7 @@ static void build_settings(void)
     label_left(s_home_upd_lab);
 
     lv_obj_t *rec = lv_button_create(list);
-    style_row(rec);
+    ui_style_row(rec);
     lv_obj_add_event_cb(rec, on_open_recover, LV_EVENT_CLICKED, NULL);
     lv_obj_t *recl = lv_label_create(rec);
     lv_label_set_text(recl, LV_SYMBOL_SD_CARD "  Restaurar do cartao");

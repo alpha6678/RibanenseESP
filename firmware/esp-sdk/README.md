@@ -8,7 +8,7 @@ sem um app enxergar o outro.
 |------------|--------|
 | `board` | Pinout E32R28T-1, LCD, toque, versão do OS |
 | `storage` | microSD FAT32 (`/sdcard/apps`, `/sdcard/os`) |
-| `ui_palette` | Cores da casca |
+| `ui_palette` | Cores e chrome da casca (`ui_palette.h`, `ui_chrome.h`) |
 | `shell` | NVS `os_slot` e voltar ao OS |
 
 OS e apps apontam `EXTRA_COMPONENT_DIRS` para `firmware/esp-sdk/components`.

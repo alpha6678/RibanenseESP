@@ -42,7 +42,7 @@ colorido — só a máscara A4 da marca na splash:
 |-----|-----|-----|
 | Preto | `#000000` | fundo |
 | Branco | `#FFFFFF` | texto, teclas neutras |
-| Azul | `#2E6FDB` | ação, foco, título |
+| Azul | `#2E6FDB` | filete, ação |
 | Verde | `#27864E` | OK |
 | Vermelho | `#C23B22` | erro |
 
@@ -63,10 +63,18 @@ o boot não espera. Sai quando o ponto de restauração já decidiu **e** o
 relógio passou. Fora do boot (atualizar, restaurar, catálogo) a espera é
 só a barra e o texto, centrados, sem a marca.
 
+Lista: **36 px**, sem caixa, filete azul de 3 px à esquerda. Ícone só
+em ação da casca (voltar e refresh no chrome; Atualizar e Restaurar na
+lista; Salvar e Esquecer). Linhas de navegação e conteúdo são texto
+puro (Configurações, Catálogo, pastas, SSID, apps). Campo de senha:
+**56 px**, filete azul + borda, Montserrat 24. Teclado (100 px) continua
+em caixa — são teclas, não lista. Sem radius, cinza ou `lv_anim`.
+
 Sem animações nem elevação de tecla. Teclas pretas com borda e letra
-brancas; no toque só a borda da tecla fica amarela. Redesenho da tela no
-máximo **3 vezes por segundo** (`LV_DEF_REFR_PERIOD` = 333 ms). Toque
-pode ser lido mais vezes; o SPI do painel não deve flush contínuo.
+brancas; no toque só a borda da tecla (ou o filete) fica amarela.
+Redesenho da tela no máximo **3 vezes por segundo**
+(`LV_DEF_REFR_PERIOD` = 333 ms). Toque pode ser lido mais vezes; o SPI
+do painel não deve flush contínuo.
 
 **Armadilha LVGL 9:** `lv_indev_create()` cria o timer de leitura com
 `LV_DEF_REFR_PERIOD`. Na v8 existia `LV_INDEV_DEF_READ_PERIOD` separado;
@@ -75,11 +83,12 @@ amostras. O firmware força o timer do ponteiro para **20 ms**
 (`lv_timer_set_period(lv_indev_get_read_timer(indev), 20)`) e o laço
 chama `lv_timer_handler` a cada 5 ms. O flush do painel continua em 3 Hz.
 
-Home: faixa no topo com **celer** (mesmo tipo da splash, um pouco mais
-espesso) à esquerda e a versão do OS à direita; abaixo, lista com
-scroll. Os dois primeiros itens são **Configurações** (Wi-Fi e
-Atualizar) e **Catálogo**. Apps instalados não ficam na raiz: a lista
-mostra só as categorias da
+Home: chrome único de **40 px** com **celer** em Montserrat 24 (sem
+outline) e a versão à direita. Dentro de uma pasta o voltar sobe para o
+chrome e o título vira o nome da pasta — sem ponteiro estático extra,
+só filhos da barra. Abaixo, lista com scroll. Os dois primeiros itens
+são **Configurações** (Wi-Fi e Atualizar) e **Catálogo**. Apps
+instalados não ficam na raiz: a lista mostra só as categorias da
 [`app-taxonomy.json`](../catalog/app-taxonomy.json) que têm app no
 cartão; o toque desce para subcategoria e então o app. Pasta vazia
 não aparece. Wi-Fi de senha/SSID continua em Configurações — não é
