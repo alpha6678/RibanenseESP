@@ -83,10 +83,11 @@ amostras. O firmware força o timer do ponteiro para **20 ms**
 (`lv_timer_set_period(lv_indev_get_read_timer(indev), 20)`) e o laço
 chama `lv_timer_handler` a cada 5 ms. O flush do painel continua em 3 Hz.
 
-Home: chrome único de **40 px** com **celer** em Montserrat 24 (sem
-outline) e a versão à direita. Dentro de uma pasta o voltar sobe para o
-chrome e o título vira o nome da pasta — sem ponteiro estático extra,
-só filhos da barra. Abaixo, lista com scroll. Os dois primeiros itens
+Home: chrome de **40 px** com a marca **celer** em Montserrat 24 no
+centro (sem outline) e a versão à direita. Títulos de rota ficam em 14 —
+a marca é que merece o 24. Dentro de uma pasta o voltar sobe para o
+chrome e o título (14, ainda ao centro) vira o nome da pasta — sem
+ponteiro estático extra, só filhos da barra. Abaixo, lista com scroll. Os dois primeiros itens
 são **Configurações** (Wi-Fi e Atualizar) e **Catálogo**. Apps
 instalados não ficam na raiz: a lista mostra só as categorias da
 [`app-taxonomy.json`](../catalog/app-taxonomy.json) que têm app no

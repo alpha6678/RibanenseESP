@@ -102,12 +102,11 @@ OTA do OS só com a placa no OS. O app no SD não é apagado.
 O desenho padrão é o mesmo do OS: header
 [`ui_chrome.h`](../firmware/esp-sdk/components/ui_palette/include/ui_chrome.h)
 (medidas + `ui_style_row` / `ui_style_chrome` / `ui_style_field`).
-Lista **36 px** com filete azul, sem ícone em linha de conteúdo. Ícone
-só em ação (voltar ao OS, refresh, excluir). Chrome **40 px**, título
-Montserrat 24 se o app ligar `CONFIG_LV_FONT_MONTSERRAT_24` no
-`sdkconfig.defaults`; senão o título fica 14 no mesmo chrome. Campo de
-texto **56 px**. Sem caixa, radius, cinza ou `lv_anim`. Se um app
-precisar fugir, pede-se na hora.
+Lista **36 px** com filete `#2E6FDB` (barra sólida, não borda de tema).
+Ícone só em ação (voltar ao OS, refresh, excluir). Chrome **40 px**:
+título de rota em 14; Montserrat 24 só na marca. Campo de texto **56 px**.
+Sem caixa, radius, cinza ou `lv_anim`. Se um app precisar fugir, pede-se
+na hora.
 
 ## `rbesp`
 
