@@ -9,6 +9,7 @@
 #define NET_PASS_MAX 65
 #define NET_AP_MAX   12
 #define NET_IP_MAX   16
+#define NET_MAC_MAX  18
 
 #define NET_AUTH_OPEN 0
 
@@ -17,6 +18,14 @@ typedef struct {
     int8_t rssi;
     uint8_t auth;
 } net_ap_t;
+
+typedef struct {
+    char ip[NET_IP_MAX];
+    char mask[NET_IP_MAX];
+    char gw[NET_IP_MAX];
+    char dns[NET_IP_MAX];
+    char mac[NET_MAC_MAX];
+} net_sta_lan_t;
 
 typedef enum {
     NET_SCAN_IDLE = 0,
@@ -47,6 +56,7 @@ esp_err_t net_sta_restore(void);
 esp_err_t net_sta_disconnect(void);
 net_sta_state_t net_sta_state(void);
 void net_sta_ip(char *out, size_t max);
+bool net_sta_lan(net_sta_lan_t *out);
 void net_sta_ssid(char *out, size_t max);
 uint16_t net_sta_fail_reason(void);
 esp_err_t net_time_wait(int timeout_ms);

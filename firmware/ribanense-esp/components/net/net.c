@@ -7,6 +7,7 @@
 
 #include "esp_event.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
 #include "esp_timer.h"
@@ -23,6 +24,8 @@ static bool s_ready;
 static bool s_sta_started;
 static bool s_want_restore;
 static bool s_retry_due;
+static bool s_retry_when_seen;
+static bool s_leave;
 static int s_backoff_i;
 static net_scan_state_t s_scan = NET_SCAN_IDLE;
 static net_sta_state_t s_sta = NET_STA_IDLE;
@@ -36,7 +39,6 @@ static uint8_t s_pending_auth;
 static char s_flash_ssid[NET_SSID_MAX];
 static char s_flash_psk[NET_PASS_MAX];
 static uint8_t s_flash_auth;
-static bool s_retry_when_seen;
 static uint16_t s_fail_reason;
 static SemaphoreHandle_t s_lock;
 static esp_timer_handle_t s_retry_timer;
@@ -223,8 +225,14 @@ static void on_wifi(void *arg, esp_event_base_t base, int32_t id, void *data)
 
     if (id == WIFI_EVENT_STA_DISCONNECTED) {
         const wifi_event_sta_disconnected_t *ev = data;
+        bool leave = false;
         lock();
-        if (s_sta == NET_STA_CONNECTING || s_sta == NET_STA_GOT_IP) {
+        if (s_leave) {
+            s_leave = false;
+            s_ip[0] = 0;
+            s_sta = NET_STA_CONNECTING;
+            leave = true;
+        } else if (s_sta == NET_STA_CONNECTING || s_sta == NET_STA_GOT_IP) {
             s_sta = NET_STA_FAIL;
             s_fail_reason = ev ? ev->reason : 0;
             s_ip[0] = 0;
@@ -237,6 +245,16 @@ static void on_wifi(void *arg, esp_event_base_t base, int32_t id, void *data)
             ESP_LOGW(TAG, "STA caiu reason=%u", (unsigned)s_fail_reason);
         }
         unlock();
+        if (leave) {
+            esp_err_t err = esp_wifi_connect();
+            if (err != ESP_OK) {
+                lock();
+                s_sta = NET_STA_FAIL;
+                unlock();
+                ESP_LOGE(TAG, "connect %s", esp_err_to_name(err));
+            }
+            return;
+        }
         if (s_want_restore) {
             schedule_retry();
         }
@@ -381,6 +399,10 @@ esp_err_t net_scan_start(void)
     }
 
     lock();
+    if (s_sta == NET_STA_CONNECTING) {
+        unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
     if (s_scan == NET_SCAN_BUSY) {
         unlock();
         return ESP_ERR_INVALID_STATE;
@@ -470,9 +492,26 @@ esp_err_t net_sta_connect(const char *ssid, const char *pass)
     }
 
     lock();
+    const bool same = (s_sta == NET_STA_GOT_IP && strcmp(s_ssid, ssid) == 0);
+    const bool associated = (s_sta == NET_STA_GOT_IP);
+    if (same) {
+        s_sta = NET_STA_GOT_IP;
+        s_leave = false;
+        strncpy(s_ssid, ssid, sizeof(s_ssid) - 1);
+        s_ssid[sizeof(s_ssid) - 1] = 0;
+        s_pending_psk[0] = 0;
+        if (pass != NULL) {
+            strncpy(s_pending_psk, pass, sizeof(s_pending_psk) - 1);
+            s_pending_psk[sizeof(s_pending_psk) - 1] = 0;
+        }
+        s_pending_auth = auth;
+        unlock();
+        return ESP_OK;
+    }
     s_sta = NET_STA_CONNECTING;
     s_fail_reason = 0;
     s_ip[0] = 0;
+    s_leave = associated && s_sta_started;
     strncpy(s_ssid, ssid, sizeof(s_ssid) - 1);
     s_ssid[sizeof(s_ssid) - 1] = 0;
     s_pending_psk[0] = 0;
@@ -493,10 +532,15 @@ esp_err_t net_sta_connect(const char *ssid, const char *pass)
     if (err != ESP_OK) {
         lock();
         s_sta = NET_STA_FAIL;
+        s_leave = false;
         unlock();
         return err;
     }
-    (void)esp_wifi_disconnect();
+    if (associated) {
+        (void)esp_wifi_disconnect();
+        ESP_LOGI(TAG, "conectando a %s", ssid);
+        return ESP_OK;
+    }
     err = esp_wifi_connect();
     if (err != ESP_OK) {
         lock();
@@ -524,6 +568,42 @@ void net_sta_ip(char *out, size_t max)
     strncpy(out, s_ip, max - 1);
     out[max - 1] = 0;
     unlock();
+}
+
+bool net_sta_lan(net_sta_lan_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+
+    lock();
+    const bool ok = (s_sta == NET_STA_GOT_IP && s_ip[0] != 0);
+    unlock();
+    if (!ok || s_sta_netif == NULL) {
+        return false;
+    }
+
+    esp_netif_ip_info_t info;
+    if (esp_netif_get_ip_info(s_sta_netif, &info) != ESP_OK) {
+        return false;
+    }
+    snprintf(out->ip, sizeof(out->ip), IPSTR, IP2STR(&info.ip));
+    snprintf(out->mask, sizeof(out->mask), IPSTR, IP2STR(&info.netmask));
+    snprintf(out->gw, sizeof(out->gw), IPSTR, IP2STR(&info.gw));
+
+    esp_netif_dns_info_t dns;
+    if (esp_netif_get_dns_info(s_sta_netif, ESP_NETIF_DNS_MAIN, &dns) == ESP_OK &&
+        dns.ip.type == ESP_IPADDR_TYPE_V4) {
+        snprintf(out->dns, sizeof(out->dns), IPSTR, IP2STR(&dns.ip.u_addr.ip4));
+    }
+
+    uint8_t mac[6];
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) {
+        snprintf(out->mac, sizeof(out->mac), "%02x:%02x:%02x:%02x:%02x:%02x",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+    return true;
 }
 
 void net_sta_ssid(char *out, size_t max)
@@ -565,6 +645,7 @@ esp_err_t net_sta_disconnect(void)
     (void)esp_wifi_set_config(WIFI_IF_STA, &cfg);
     (void)esp_wifi_disconnect();
     lock();
+    s_leave = false;
     s_sta = NET_STA_IDLE;
     s_fail_reason = 0;
     s_ip[0] = 0;
