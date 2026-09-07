@@ -10,6 +10,7 @@
 #define UI_CHROME_BTN 40
 #define UI_FIELD_H    56
 #define UI_RAIL_W     3
+#define UI_RAIL_GAP   8
 
 static inline lv_obj_t *ui_row_rail_of(lv_obj_t *row)
 {
@@ -59,7 +60,7 @@ static inline void ui_style_row(lv_obj_t *obj)
     lv_obj_set_style_bg_color(obj, ui_color_black(), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, 0, 0);
-    lv_obj_set_style_pad_left(obj, 8, 0);
+    lv_obj_set_style_pad_left(obj, UI_RAIL_W + UI_RAIL_GAP, 0);
     lv_obj_set_style_pad_right(obj, 6, 0);
     lv_obj_set_style_shadow_width(obj, 0, 0);
     lv_obj_set_style_border_width(obj, 0, 0);
@@ -125,7 +126,7 @@ static inline void ui_style_field(lv_obj_t *obj)
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_text_color(obj, ui_color_white(), 0);
     lv_obj_set_style_radius(obj, 0, 0);
-    lv_obj_set_style_pad_left(obj, 8, 0);
+    lv_obj_set_style_pad_left(obj, UI_RAIL_W + UI_RAIL_GAP, 0);
     lv_obj_set_style_pad_right(obj, 8, 0);
     lv_obj_set_style_border_side(obj, LV_BORDER_SIDE_LEFT, 0);
     lv_obj_set_style_border_width(obj, UI_RAIL_W, 0);
