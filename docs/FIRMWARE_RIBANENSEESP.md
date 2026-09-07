@@ -63,10 +63,10 @@ o boot não espera. Sai quando o ponto de restauração já decidiu **e** o
 relógio passou. Fora do boot (atualizar, restaurar, catálogo) a espera é
 só a barra e o texto, centrados, sem a marca.
 
-Lista: **36 px**, sem caixa, filete azul de 3 px à esquerda. Ícone só
-em ação da casca (voltar e refresh no chrome; Atualizar e Restaurar na
-lista; Salvar e Esquecer). Linhas de navegação e conteúdo são texto
-puro (Configurações, Catálogo, pastas, SSID, apps). Campo de senha:
+Lista: **36 px**, sem caixa, filete azul de 3 px à esquerda e 8 px até
+o texto. Ícone só no chrome (voltar e refresh). Linhas da lista —
+incluindo Atualizar e Restaurar — são texto puro. Salvar e Esquecer
+ainda podem levar ícone de ação. Campo de senha:
 **56 px**, filete azul + borda, Montserrat 24. Teclado (100 px) continua
 em caixa — são teclas, não lista. Sem radius, cinza ou `lv_anim`.
 
@@ -94,8 +94,10 @@ instalados não ficam na raiz: a lista mostra só as categorias da
 cartão; o toque desce para subcategoria e então o app. Pasta vazia
 não aparece. Wi-Fi de senha/SSID continua em Configurações — não é
 app da subcategoria Wifi.
-A tela Wi-Fi faz scan STA (SSID + dBm a 1 Hz); toque abre a senha no
-teclado do TFT e `esp_wifi_connect`. Não há USB Host nesta placa.
+A tela Wi-Fi lista só o SSID: a conectada no topo (verde, sem dBm); as
+outras com dBm. Toque na conectada abre IP, máscara, gateway, DNS, MAC e
+Esquecer. Toque em outra abre a senha no teclado do TFT ou conecta.
+Não há USB Host nesta placa.
 
 ## Toque (XPT2046)
 
@@ -127,7 +129,8 @@ Calibração medida nesta E32R28T-1 (4 cantos + centro, 2026-09-03), em
 | F3 | Pull `firmware.json` (HTTPS + SHA256 + ECDSA) + rollback real |
 
 Após `GOT_IP` a UI volta à home. Em **Configurações** aparecem o ID
-`RBN-XXXXXX` (MAC), a senha LAN desta unidade, o item Wi-Fi (IP),
+`RBN-XXXXXX` (MAC), a senha LAN desta unidade, o item Wi-Fi (texto
+fixo; verde com IP, branco sem),
 **Brilho** (10–100%, passo 10; Voltar cancela, Salvar grava no cartão)
 e **Atualizar** (pull). SoftAP sozinho não alcança o GitHub.
 
