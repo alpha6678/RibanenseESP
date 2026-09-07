@@ -157,7 +157,9 @@ static esp_err_t lcd_init(void)
 
     const esp_lcd_panel_dev_config_t panel_cfg = {
         .reset_gpio_num = -1,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
+        /* ST7789P3 desta unidade. BGR e a receita do CYD com ILI9341: aqui
+         * trocava R/B e o azul da paleta (#2E6FDB) saia laranja (#DB6F2E). */
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
         .bits_per_pixel = 16,
     };
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_st7789(io, &panel_cfg, &s_panel), TAG, "st7789");
