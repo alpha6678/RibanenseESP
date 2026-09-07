@@ -63,8 +63,9 @@ o boot não espera. Sai quando o ponto de restauração já decidiu **e** o
 relógio passou. Fora do boot (atualizar, restaurar, catálogo) a espera é
 só a barra e o texto, centrados, sem a marca.
 
-Lista: **36 px**, sem caixa, filete azul de 3 px à esquerda e 8 px até
-o texto. Ícone só no chrome (voltar e refresh). Linhas da lista —
+Lista: **36 px**, sem caixa, filete azul de 3 px à esquerda e 8 px
+(~1,4 mm nesta 2,8" 240×320; 1 mm = 6 px) até o texto. Ícone só no
+chrome (voltar e refresh). Linhas da lista —
 incluindo Atualizar e Restaurar — são texto puro. Salvar e Esquecer
 ainda podem levar ícone de ação. Campo de senha:
 **56 px**, filete azul + borda, Montserrat 24. Teclado (100 px) continua

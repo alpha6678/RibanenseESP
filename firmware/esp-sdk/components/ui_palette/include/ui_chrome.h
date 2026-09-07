@@ -3,13 +3,15 @@
 #include "ui_palette.h"
 
 /* Chrome #4 compacto (240x320). Sem .c e sem BSS: so define e static inline.
- * Filete e o azul da paleta (#2E6FDB), barra solida — borda do LVGL muda de
- * tom com o tema. Titulo de rota e 14; Montserrat 24 so na marca. */
+ * Filete e o azul da paleta (#2E6FDB), no flex da linha (nao flutua).
+ * Titulo de rota e 14; Montserrat 24 so na marca. */
 #define UI_ROW_H      36
 #define UI_CHROME_H   40
 #define UI_CHROME_BTN 40
 #define UI_FIELD_H    56
 #define UI_RAIL_W     3
+/* 2.8" 240x320: diagonal 400 px / 71.12 mm => 0.178 mm/px. 1 mm = 6 px.
+ * +2 px cobrem o sidebearing da Montserrat 14 (W, j, etc.). */
 #define UI_RAIL_GAP   8
 
 static inline lv_obj_t *ui_row_rail_of(lv_obj_t *row)
@@ -24,7 +26,7 @@ static inline lv_obj_t *ui_row_rail_of(lv_obj_t *row)
     return NULL;
 }
 
-/* Filhos uteis da linha (pula o filete flutuante). */
+/* Filhos uteis da linha (pula o filete). */
 static inline lv_obj_t *ui_row_item(lv_obj_t *row, uint32_t want)
 {
     const uint32_t n = lv_obj_get_child_count(row);
@@ -60,8 +62,11 @@ static inline void ui_style_row(lv_obj_t *obj)
     lv_obj_set_style_bg_color(obj, ui_color_black(), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, 0, 0);
-    lv_obj_set_style_pad_left(obj, UI_RAIL_W + UI_RAIL_GAP, 0);
+    /* Filete no flex, nao flutuante: pad_left nao empurra filho com
+     * IGNORE_LAYOUT, e o vao sumia em todas as linhas. */
+    lv_obj_set_style_pad_left(obj, 0, 0);
     lv_obj_set_style_pad_right(obj, 6, 0);
+    lv_obj_set_style_pad_column(obj, UI_RAIL_GAP, 0);
     lv_obj_set_style_shadow_width(obj, 0, 0);
     lv_obj_set_style_border_width(obj, 0, 0);
     lv_obj_set_style_outline_width(obj, 0, 0);
@@ -77,15 +82,12 @@ static inline void ui_style_row(lv_obj_t *obj)
 
     lv_obj_t *rail = lv_obj_create(obj);
     lv_obj_remove_style_all(rail);
-    lv_obj_set_size(rail, UI_RAIL_W, lv_pct(100));
+    lv_obj_set_size(rail, UI_RAIL_W, UI_ROW_H);
     lv_obj_set_style_bg_color(rail, ui_color_blue(), 0);
     lv_obj_set_style_bg_opa(rail, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(rail, 0, 0);
-    lv_obj_add_flag(rail, LV_OBJ_FLAG_FLOATING);
-    lv_obj_add_flag(rail, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_add_flag(rail, LV_OBJ_FLAG_USER_1);
     lv_obj_remove_flag(rail, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(rail, LV_ALIGN_LEFT_MID, 0, 0);
     lv_obj_add_event_cb(obj, ui_row_on_press, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(obj, ui_row_on_press, LV_EVENT_RELEASED, NULL);
     lv_obj_add_event_cb(obj, ui_row_on_press, LV_EVENT_PRESS_LOST, NULL);
@@ -126,7 +128,7 @@ static inline void ui_style_field(lv_obj_t *obj)
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_text_color(obj, ui_color_white(), 0);
     lv_obj_set_style_radius(obj, 0, 0);
-    lv_obj_set_style_pad_left(obj, UI_RAIL_W + UI_RAIL_GAP, 0);
+    lv_obj_set_style_pad_left(obj, UI_RAIL_GAP, 0);
     lv_obj_set_style_pad_right(obj, 8, 0);
     lv_obj_set_style_border_side(obj, LV_BORDER_SIDE_LEFT, 0);
     lv_obj_set_style_border_width(obj, UI_RAIL_W, 0);

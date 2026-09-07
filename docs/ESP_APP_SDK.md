@@ -102,7 +102,7 @@ OTA do OS só com a placa no OS. O app no SD não é apagado.
 O desenho padrão é o mesmo do OS: header
 [`ui_chrome.h`](../firmware/esp-sdk/components/ui_palette/include/ui_chrome.h)
 (medidas + `ui_style_row` / `ui_style_chrome` / `ui_style_field`).
-Lista **36 px** com filete `#2E6FDB` (barra sólida, não borda de tema).
+Lista **36 px** com filete `#2E6FDB` (barra sólida, 8 px / ~1,4 mm até o texto).
 Ícone só no chrome (voltar ao OS, refresh). Lista é texto puro.
 Chrome **40 px**:
 título de rota em 14; Montserrat 24 só na marca. Campo de texto **56 px**.

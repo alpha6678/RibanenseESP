@@ -517,13 +517,13 @@ static void set_pass_status(const char *msg, lv_color_t color)
     label_color(s_pass_status, color);
 }
 
-static void set_home_wifi(bool up)
+static void set_home_wifi(void)
 {
     if (s_home_wifi_lab == NULL) {
         return;
     }
     label_text(s_home_wifi_lab, "Wi-Fi");
-    label_color(s_home_wifi_lab, up ? ui_color_green() : ui_color_white());
+    label_color(s_home_wifi_lab, ui_color_white());
 }
 
 static void set_home_ota(const char *msg, lv_color_t color)
@@ -541,7 +541,7 @@ static void on_lan_up(void)
     net_sta_ip(ip, sizeof(ip));
     s_lan_up = true;
     (void)ota_start_httpd();
-    set_home_wifi(true);
+    set_home_wifi();
     ESP_LOGI(TAG, "LAN %s", ip);
     if (s_pass != NULL || s_join_home) {
         s_join_home = false;
@@ -560,7 +560,7 @@ static void lan_poll(void)
     }
     if (s_lan_up) {
         s_lan_up = false;
-        set_home_wifi(false);
+        set_home_wifi();
     }
 }
 
@@ -1002,10 +1002,6 @@ static void add_ap_row(const net_ap_t *ap)
     lv_obj_t *row = lv_button_create(s_wifi_list);
     ui_style_row(row);
     lv_obj_set_user_data(row, (void *)(uintptr_t)ap->auth);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(row, 6, 0);
     lv_obj_add_event_cb(row, on_ap_click, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *ssid = lv_label_create(row);
@@ -1329,7 +1325,7 @@ static void on_pass_forget(lv_event_t *e)
 {
     (void)e;
     (void)net_wifi_forget(s_sel_ssid);
-    set_home_wifi(false);
+    set_home_wifi();
     show_wifi();
     set_wifi_status("rede esquecida", ui_color_white());
 }
@@ -1377,7 +1373,8 @@ static void build_pass(void)
     lv_obj_t *tl = lv_label_create(btn);
     lv_label_set_text(tl, "Conectar");
     lv_obj_set_style_text_color(tl, ui_color_white(), 0);
-    lv_obj_center(tl);
+    lv_obj_set_flex_grow(tl, 1);
+    lv_obj_set_style_text_align(tl, LV_TEXT_ALIGN_CENTER, 0);
 
     if (net_wifi_known(s_sel_ssid)) {
         lv_obj_t *forget = lv_button_create(s_pass);
@@ -1386,7 +1383,8 @@ static void build_pass(void)
         lv_obj_t *fl = lv_label_create(forget);
         lv_label_set_text(fl, LV_SYMBOL_TRASH "  Esquecer");
         lv_obj_set_style_text_color(fl, ui_color_white(), 0);
-        lv_obj_center(fl);
+        lv_obj_set_flex_grow(fl, 1);
+        lv_obj_set_style_text_align(fl, LV_TEXT_ALIGN_CENTER, 0);
     }
 
     s_kb = lv_keyboard_create(s_pass);
@@ -1448,7 +1446,7 @@ static void on_info_forget(lv_event_t *e)
 {
     (void)e;
     (void)net_wifi_forget(s_sel_ssid);
-    set_home_wifi(false);
+    set_home_wifi();
     show_wifi();
     set_wifi_status("rede esquecida", ui_color_white());
 }
@@ -1475,7 +1473,8 @@ static void build_info(void)
     lv_obj_t *fl = lv_label_create(forget);
     lv_label_set_text(fl, LV_SYMBOL_TRASH "  Esquecer");
     lv_obj_set_style_text_color(fl, ui_color_white(), 0);
-    lv_obj_center(fl);
+    lv_obj_set_flex_grow(fl, 1);
+    lv_obj_set_style_text_align(fl, LV_TEXT_ALIGN_CENTER, 0);
 }
 
 static void destroy_info(void)
@@ -1715,7 +1714,8 @@ static void build_brightness(void)
     lv_obj_t *ml = lv_label_create(minus);
     lv_label_set_text(ml, "menos");
     lv_obj_set_style_text_color(ml, ui_color_white(), 0);
-    lv_obj_center(ml);
+    lv_obj_set_flex_grow(ml, 1);
+    lv_obj_set_style_text_align(ml, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_obj_t *plus = lv_button_create(row);
     ui_style_row(plus);
@@ -1725,7 +1725,8 @@ static void build_brightness(void)
     lv_obj_t *pl = lv_label_create(plus);
     lv_label_set_text(pl, "mais");
     lv_obj_set_style_text_color(pl, ui_color_white(), 0);
-    lv_obj_center(pl);
+    lv_obj_set_flex_grow(pl, 1);
+    lv_obj_set_style_text_align(pl, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_obj_t *save = lv_button_create(s_bright);
     ui_style_row(save);
@@ -1733,7 +1734,8 @@ static void build_brightness(void)
     lv_obj_t *sl = lv_label_create(save);
     lv_label_set_text(sl, LV_SYMBOL_SAVE "  Salvar");
     lv_obj_set_style_text_color(sl, ui_color_white(), 0);
-    lv_obj_center(sl);
+    lv_obj_set_flex_grow(sl, 1);
+    lv_obj_set_style_text_align(sl, LV_TEXT_ALIGN_CENTER, 0);
 
     s_bright_status = lv_label_create(s_bright);
     lv_label_set_text(s_bright_status, "");
@@ -1766,7 +1768,7 @@ static void show_settings(void)
     if (s_settings == NULL) {
         build_settings();
     }
-    set_home_wifi(net_sta_state() == NET_STA_GOT_IP);
+    set_home_wifi();
     lv_screen_load(s_settings);
 }
 
