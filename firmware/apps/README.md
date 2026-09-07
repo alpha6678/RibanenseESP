@@ -3,7 +3,11 @@
 Cada pasta é um projeto ESP-IDF independente + `app.json`. O OS não
 compila estes apps. Ver [`docs/ESP_APP_SDK.md`](../../docs/ESP_APP_SDK.md).
 
-| Pasta | ID | Papel |
-|-------|----|--------|
-| `Sobre` | `com.ribanense.esp.sobre` | Versão, MAC, voltar ao OS |
-| `Redes` | `com.ribanense.esp.redes` | Menu de rede; Scanner IP (ARP → `tmp/redes/hosts.bin`) |
+Não há app publicado neste momento. O catálogo
+([`catalog/esp-catalog.json`](../../catalog/esp-catalog.json)) está vazio.
+A home só mostra **Configurações** e **Catálogo** até existir um
+`app.json` com `category` / `subcategory` da
+[`catalog/app-taxonomy.json`](../../catalog/app-taxonomy.json).
+
+Pasta sem app instalado não aparece. A categoria **Outros** lista o app
+direto, sem segundo nível.

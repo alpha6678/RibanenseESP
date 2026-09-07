@@ -1,33 +1,4 @@
 {
   "schemaVersion": 1,
-  "apps": [
-    {
-      "id": "com.ribanense.esp.sobre",
-      "name": "Sobre",
-      "publicName": "Sobre",
-      "description": "Versao, MAC e retorno ao OS.",
-      "category": "Sistema",
-      "githubOwner": "alpha6678",
-      "githubRepo": "RibanenseESP",
-      "githubTagPrefix": "esp-sobre-v",
-      "minimumOsVersion": "0.0.2",
-      "version": "0.1.6",
-      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-sobre-0.1.6.zip",
-      "sha256": "69c4246bf475cf24b3f61d384f7e3545bce718ef26955c22036193f8220a94b7"
-    },
-    {
-      "id": "com.ribanense.esp.redes",
-      "name": "Redes",
-      "publicName": "Redes",
-      "description": "Scanner IP da LAN (ARP, nome e fabricante).",
-      "category": "Rede",
-      "githubOwner": "alpha6678",
-      "githubRepo": "RibanenseESP",
-      "githubTagPrefix": "esp-redes-v",
-      "minimumOsVersion": "0.0.2",
-      "version": "0.1.4",
-      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-redes-0.1.4.zip",
-      "sha256": "e5c7554f1d515403446d1d4f3f3dab77288dd441a409b9e024efc8d6c6ddade5"
-    }
-  ]
+  "apps": []
 }

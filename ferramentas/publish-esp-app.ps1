@@ -4,7 +4,7 @@
   Compila um app nativo da placa e gera zip (store) + SHA256 + app.json.
 
 .PARAMETER App
-  Nome da pasta em firmware/apps (ex.: Sobre).
+  Nome da pasta em firmware/apps.
 
 .PARAMETER Version
   SemVer. Se omitida, le app.json.
