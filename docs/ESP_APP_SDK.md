@@ -19,18 +19,34 @@ inicia um segundo `app_main` a partir do cartão.
 Nenhum app depende de outro em tempo de compilação. OS e apps só compartilham
 o `esp-sdk` (board, storage, paleta, shell).
 
+## Taxonomia
+
+A home e o Catálogo navegam **categoria → subcategoria → app**. A árvore
+fixa vive no OS ([`catalog/app-taxonomy.json`](../catalog/app-taxonomy.json),
+espelhada em `app_taxonomy.c`). Teto: 10 categorias e 10 subcategorias,
+incluindo **Outros**. Pasta sem app instalado (home) ou sem entrada no
+catálogo remoto **não aparece**. A categoria `outros` é plana: lista o
+app direto.
+
+O cartão continua `/sdcard/apps/<id>/`. A pasta é só metadado no
+`app.json`. Slug desconhecido cai em `outros`.
+
+`rbesp check` e `rbesp doctor` recusam catálogo ou `app.json` fora da
+lista, e recusam slugs do `.c` diferentes do JSON.
+
 ## Manifesto `app.json`
 
 ```json
 {
-  "id": "com.ribanense.esp.sobre",
-  "name": "Sobre",
-  "publicName": "Sobre",
+  "id": "com.ribanense.esp.exemplo",
+  "name": "Exemplo",
+  "publicName": "Exemplo",
   "version": "0.1.0",
-  "minimumOsVersion": "0.0.2",
+  "minimumOsVersion": "0.5.0",
   "entryBinary": "app.bin",
-  "category": "Sistema",
-  "githubTagPrefix": "esp-sobre-v"
+  "category": "ferramentas",
+  "subcategory": "calculadora",
+  "githubTagPrefix": "esp-exemplo-v"
 }
 ```
 
@@ -40,11 +56,13 @@ o `esp-sdk` (board, storage, paleta, shell).
 | `version` | sim | SemVer do app (independente do OS) |
 | `minimumOsVersion` | sim | OS mínimo que sabe instalar/abrir o pacote |
 | `entryBinary` | sim | Nome do firmware dentro do zip (`app.bin`) |
+| `category` | sim | Slug da [`app-taxonomy.json`](../catalog/app-taxonomy.json) |
+| `subcategory` | se a categoria não for plana | Slug da subcategoria |
 | `githubTagPrefix` | sim | Prefixo da tag (`esp-<slug>-v`) |
 
 ## Pacote e instalação
 
-`rbesp app publish Sobre` (ou `rbesp publish all`) gera
+`rbesp app publish <Slug>` (ou `rbesp publish all`) gera
 `esp-<slug>-<ver>.zip` **sem compressão** (o unzip na placa só aceita store)
 + `.sha256` + `app.json`.
 
@@ -58,11 +76,12 @@ antes de recriar estas pastas):
 |-------|-----|
 | `/sdcard/apps/<id>/` | App instalado (`app.bin` + `app.json`) |
 | `/sdcard/os/` | Dados do OS (Wi-Fi em `os/wifi/`, brilho em `os/settings.json`) |
-| `/sdcard/tmp/` | Download e unzip (`pkg.zip`); rascunho do Scanner IP em `tmp/redes/` |
+| `/sdcard/tmp/` | Download e unzip (`pkg.zip`) |
 | `/sdcard/cache/` | JSON do catálogo (`catalog.json`) |
 
-O OS lista até **24** apps na home e no Catálogo (`STORE_MAX_APPS`). Isso é teto de
+O OS lista até **8** apps na home e no Catálogo (`STORE_MAX_APPS`). Isso é teto de
 metadados na UI, não de pastas no cartão. A listagem lê um `app.json` por vez.
+A hierarquia não aumenta esse teto.
 
 A placa baixa o zip para `tmp`, confere SHA256 e extrai para `apps/<id>/`.
 O corpo HTTP vai em chunks para o cartão; o ESP32 não usa o SD como RAM.
@@ -73,7 +92,8 @@ Apps não devem gravar em `/sdcard/os/`.
 1. O OS grava o slot atual em NVS (`rib_os` / `slot`).
 2. Faz stream de `app.bin` para o slot OTA inativo (chunks; nunca o arquivo na SRAM).
 3. Reinicia no app.
-4. O app chama `shell_boot_os()` (botão Voltar) e o bootloader volta ao OS.
+4. O app chama `shell_boot_os()` (botão Voltar) e o bootloader volta ao OS
+   (home na raiz, não na pasta de onde saiu).
 
 OTA do OS só com a placa no OS. O app no SD não é apagado.
 
@@ -82,9 +102,9 @@ OTA do OS só com a placa no OS. O app no SD não é apagado.
 ```bat
 rbesp build
 rbesp os publish
-rbesp os release 0.3.6
-rbesp app publish Sobre
-rbesp app release Sobre 0.1.3
+rbesp os release 0.5.0
+rbesp app publish <Slug>
+rbesp app release <Slug> 0.1.0
 rbesp publish all --dry-run
 ```
 

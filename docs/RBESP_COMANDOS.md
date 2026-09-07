@@ -118,31 +118,31 @@ Wi-Fi da flash e dados do cartão somem. Deixe o cartão na placa.
 
 ## Apps da placa (`firmware/apps/<Slug>`)
 
-Troque `Sobre` pelo slug da pasta.
+`<Slug>` é o nome da pasta em `firmware/apps/`.
 
 ```bat
-rbesp app build Sobre
-rbesp app compilar Sobre
-rbesp os app build Sobre
-rbesp os app compilar Sobre
+rbesp app build <Slug>
+rbesp app compilar <Slug>
+rbesp os app build <Slug>
+rbesp os app compilar <Slug>
 
-rbesp app flash Sobre
-rbesp app flash Sobre COM8
-rbesp app gravar Sobre
-rbesp os app flash Sobre
-rbesp os app gravar Sobre COM8
+rbesp app flash <Slug>
+rbesp app flash <Slug> COM8
+rbesp app gravar <Slug>
+rbesp os app flash <Slug>
+rbesp os app gravar <Slug> COM8
 
-rbesp app publish Sobre
-rbesp app empacotar Sobre
-rbesp app pack Sobre
-rbesp os app publish Sobre
-rbesp os app empacotar Sobre
-rbesp os app pack Sobre
+rbesp app publish <Slug>
+rbesp app empacotar <Slug>
+rbesp app pack <Slug>
+rbesp os app publish <Slug>
+rbesp os app empacotar <Slug>
+rbesp os app pack <Slug>
 
-rbesp app release Sobre 0.1.0
-rbesp app soltar Sobre 0.1.0
-rbesp os app release Sobre 0.1.0
-rbesp os app soltar Sobre 0.1.0
+rbesp app release <Slug> 0.1.0
+rbesp app soltar <Slug> 0.1.0
+rbesp os app release <Slug> 0.1.0
+rbesp os app soltar <Slug> 0.1.0
 ```
 
 `app flash` grava o app **no chip** e substitui o OS. Instalação normal
@@ -155,13 +155,13 @@ rbesp bump os
 rbesp bump os patch
 rbesp bump os minor
 rbesp bump os major
-rbesp bump Sobre
-rbesp bump Sobre patch
-rbesp bump Sobre minor
-rbesp bump Sobre major
+rbesp bump <Slug>
+rbesp bump <Slug> patch
+rbesp bump <Slug> minor
+rbesp bump <Slug> major
 
 rbesp publish os
-rbesp publish Sobre
+rbesp publish <Slug>
 rbesp publish all
 rbesp publish all --dry-run
 rbesp publish all --whatif
@@ -178,9 +178,9 @@ rbesp os empacotar
 rbesp os pack
 
 rbesp release os 0.3.6
-rbesp release Sobre 0.1.0
+rbesp release <Slug> 0.1.0
 rbesp soltar os 0.3.6
-rbesp soltar Sobre 0.1.0
+rbesp soltar <Slug> 0.1.0
 rbesp os release 0.3.6
 ```
 

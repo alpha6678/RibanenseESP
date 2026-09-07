@@ -16,7 +16,7 @@ O OS tem um único dono: [`firmware/ribanense-esp/version.json`](../firmware/rib
 `rbesp bump os` altera esse arquivo (e o campo `version` de `firmware.json`).
 O header C é gerado no compile. Não editar `ribanense_esp_version.h` à mão.
 
-Apps: `firmware/apps/<Slug>/app.json` (`rbesp bump Sobre`).
+Apps: `firmware/apps/<Slug>/app.json` (`rbesp bump <Slug>`).
 
 ## Fluxo
 
@@ -42,7 +42,7 @@ flowchart TB
    - Preenche `firmware.json` (`url`, `sha256`, `sig`) e faz push
 4. `rbesp ota check` — refaz em terra o que a placa faz com o que ficou
    publicado. Só depois disso conte com a atualização.
-5. App da placa: `rbesp release Sobre 0.1.3` atualiza `catalog/esp-catalog.json`.
+5. App da placa: `rbesp release <Slug> 0.1.0` atualiza `catalog/esp-catalog.json`.
 
 ## Guarda de versão
 

@@ -75,8 +75,13 @@ amostras. O firmware força o timer do ponteiro para **20 ms**
 (`lv_timer_set_period(lv_indev_get_read_timer(indev), 20)`) e o laço
 chama `lv_timer_handler` a cada 5 ms. O flush do painel continua em 3 Hz.
 
-Home: título + lista com scroll. O primeiro item é **Configurações**
-(Wi-Fi e Atualizar). O catálogo e os apps instalados continuam na raiz.
+Home: título + lista com scroll. Os dois primeiros itens são
+**Configurações** (Wi-Fi e Atualizar) e **Catálogo**. Apps instalados
+não ficam na raiz: a lista mostra só as categorias da
+[`app-taxonomy.json`](../catalog/app-taxonomy.json) que têm app no
+cartão; o toque desce para subcategoria e então o app. Pasta vazia
+não aparece. Wi-Fi de senha/SSID continua em Configurações — não é
+app da subcategoria Wifi.
 A tela Wi-Fi faz scan STA (SSID + dBm a 1 Hz); toque abre a senha no
 teclado do TFT e `esp_wifi_connect`. Não há USB Host nesta placa.
 
@@ -228,10 +233,11 @@ antigo não vê releases novos — primeiro flash por USB
 
 O OS é o launcher da placa. Apps nativos (projetos IDF em
 `firmware/apps/`) instalam-se em `/sdcard/apps/<id>/` a partir de
-[`catalog/esp-catalog.json`](../catalog/esp-catalog.json). A home lista o
-que já está no cartão (teto 8, armadilha 1c); **Catalogo** baixa e instala. Abrir um app grava
-o `.bin` no slot OTA inativo e reinicia; **Voltar** devolve o boot ao OS
-(NVS `rib_os`/`slot`). Contrato: [`ESP_APP_SDK.md`](ESP_APP_SDK.md).
+[`catalog/esp-catalog.json`](../catalog/esp-catalog.json). A home e o
+**Catalogo** agrupam por categoria/subcategoria (teto 8 apps, armadilha
+1c). Abrir um app grava o `.bin` no slot OTA inativo e reinicia;
+**Voltar** devolve o boot ao OS (NVS `rib_os`/`slot`). Contrato:
+[`ESP_APP_SDK.md`](ESP_APP_SDK.md).
 
 No mount o OS cria `apps/`, `os/`, `tmp/` (downloads) e `cache/` (JSON
 do catálogo). `rbesp flash --zero` formata o cartão nesse mount (FAT32
@@ -242,7 +248,7 @@ não vira RAM.
 rbesp build
 rbesp os publish
 rbesp os release 0.3.6
-rbesp app publish Sobre
+rbesp app publish <Slug>
 rbesp publish all --dry-run
 ```
 

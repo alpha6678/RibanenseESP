@@ -46,7 +46,8 @@ commit da correção.
 ## Regras de naming
 
 - **Nome público**: **RibanenseESP**.
-- **IDs de app**: `com.ribanense.esp.<slug>` (ex.: `com.ribanense.esp.sobre`).
+- **IDs de app**: `com.ribanense.esp.<slug>`.
+- **Pastas na home**: categoria e subcategoria de [`catalog/app-taxonomy.json`](catalog/app-taxonomy.json); pasta vazia não aparece.
 - **Tag do OS**: `ribanense-esp-v<semver>`.
 - **Tag de app**: `esp-<slug>-v<semver>`.
 - Pinout só o da E32R28T-1. UI: fundo preto, tintas branco/azul/verde/vermelho,
@@ -59,7 +60,7 @@ commit da correção.
 - Responder em pt-BR.
 - Mudanças pequenas e localizadas sempre que possível.
 - Versão do OS só em `firmware/ribanense-esp/version.json` (o header C é gerado).
-- Manter `IA/` e `secrets/` no `.gitignore`.
+- Manter `IA/` e `secrets/` no `.gitignore`. `IA/` é insumo seu; a memória do agente é o acervo central via `iab` (`C:\CliDeIaGlobal`, repo privado `alpha6678/ia-global`).
 - Identidade deste repo: `alpha6678` / `dionerdfrg3@gmail.com` em
   `firmware/ribanense-esp/version.json`. A CLI aplica no git local e no
   `gh` só deste projeto. Não usar `desenvolvimentoLocatelli` aqui nem
@@ -78,7 +79,7 @@ commit da correção.
 .\rbesp.cmd bump os patch
 .\rbesp.cmd publish all --dry-run
 .\rbesp.cmd os release 0.3.6
-.\rbesp.cmd app build Sobre
+.\rbesp.cmd app build <Slug>
 ```
 
 `rbesp whoami` mostra a conta travada deste repo. `publish`/`release`

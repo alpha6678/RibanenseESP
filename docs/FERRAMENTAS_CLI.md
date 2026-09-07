@@ -51,7 +51,7 @@ rbesp monitor
 rbesp bump os patch
 rbesp publish all --dry-run
 rbesp os release 0.3.6
-rbesp app build Sobre
+rbesp app build <Slug>
 rbesp whoami
 ```
 
