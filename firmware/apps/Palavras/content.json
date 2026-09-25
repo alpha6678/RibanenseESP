@@ -1,0 +1,7 @@
+{
+  "title": "Palavras",
+  "screens": [
+    { "type": "list", "title": "Lista", "file": "data/palavras.txt" },
+    { "type": "text", "title": "Texto", "file": "data/palavras.txt" }
+  ]
+}

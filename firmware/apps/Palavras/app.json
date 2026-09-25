@@ -1,0 +1,12 @@
+{
+  "id": "com.ribanense.esp.palavras",
+  "kind": "content",
+  "name": "Palavras",
+  "publicName": "Palavras",
+  "version": "0.1.0",
+  "minimumOsVersion": "0.6.0",
+  "entryContent": "content.json",
+  "category": "ferramentas",
+  "subcategory": "texto",
+  "githubTagPrefix": "esp-palavras-v"
+}

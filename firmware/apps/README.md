@@ -6,6 +6,7 @@ Cada pasta tem `app.json`. Ver [`docs/ESP_APP_SDK.md`](../../docs/ESP_APP_SDK.md
 |-------|--------|---------|
 | `Amostra` | `content` | Índice + `data/` (sem firmware, sem reboot) |
 | `Leitor` | `native` | Projeto IDF pequeno + `data/texto.txt` |
+| `Palavras` | `content` | Lista PT-BR do GitHub (`pythonprobr/palavras`, ~3,6 MB) |
 
 UI padrão: [`ui_chrome.h`](../esp-sdk/components/ui_palette/include/ui_chrome.h)
 (lista 36, chrome 40, campo 56; ícone só em ação).

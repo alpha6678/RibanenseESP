@@ -1,0 +1,5 @@
+Fonte: https://github.com/pythonprobr/palavras
+Lista PT-BR (~320 mil palavras, 3,6 MB).
+Licenca do arquivo: MPL-2.0.
+Origem do corpus: dicionario pt_BR do LibreOffice.
+Obras/dados de terceiros; este app so empacota para teste no cartao.

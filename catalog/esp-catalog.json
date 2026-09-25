@@ -1,4 +1,16 @@
 {
   "schemaVersion": 1,
-  "apps": []
+  "apps": [
+    {
+      "id": "com.ribanense.esp.palavras",
+      "name": "Palavras",
+      "publicName": "Palavras",
+      "version": "0.1.0",
+      "minimumOsVersion": "0.6.0",
+      "url": "",
+      "sha256": "",
+      "category": "ferramentas",
+      "subcategory": "texto"
+    }
+  ]
 }
