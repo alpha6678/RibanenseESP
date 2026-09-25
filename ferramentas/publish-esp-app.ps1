@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Compila um app nativo da placa e gera zip (store) + SHA256 + app.json.
+  Empacota um app da placa (nativo ou content) em zip store + SHA256 + app.json.
 
 .PARAMETER App
   Nome da pasta em firmware/apps.
@@ -48,42 +48,77 @@ if (Test-Path -LiteralPath $OutputDir) {
 }
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 
-$mirror = Get-IdfMirrorRoot
-$appMirror = Join-Path $mirror "apps\$App"
-Write-Host "Espelhando $App para $appMirror ..." -ForegroundColor Cyan
-Invoke-RobocopyMirror -Source $appDir -Destination $appMirror
-Invoke-RobocopyMirror -Source $sdkSrc -Destination (Join-Path $mirror 'esp-sdk')
-Copy-OsVersionJsonToSdk -ProjectRoot $ProjectRoot -SdkDest (Join-Path $mirror 'esp-sdk')
-
-Write-Host "Compilando app da placa $App $Version ..." -ForegroundColor Cyan
-Invoke-IdfBuild -ProjectDir $appMirror -ExtraArgs @('build')
-
-$candidates = @(
-    (Join-Path $appMirror "build\esp_$($slug).bin"),
-    (Join-Path $appMirror 'build\esp_sobre.bin'),
-    (Get-ChildItem -LiteralPath (Join-Path $appMirror 'build') -Filter '*.bin' -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -notmatch 'bootloader|partition|ota_data' } |
-        Select-Object -First 1 -ExpandProperty FullName)
-)
-$built = $null
-foreach ($c in $candidates) {
-    if ($c -and (Test-Path -LiteralPath $c)) { $built = $c; break }
+function Add-AppDataEntries {
+    param([hashtable] $Entries)
+    Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $OutputDir 'app.json') -Force
+    $Entries['app.json'] = (Join-Path $OutputDir 'app.json')
+    $contentSrc = Join-Path $appDir 'content.json'
+    if (Test-Path -LiteralPath $contentSrc) {
+        Copy-Item -LiteralPath $contentSrc -Destination (Join-Path $OutputDir 'content.json') -Force
+        $Entries['content.json'] = (Join-Path $OutputDir 'content.json')
+    }
+    $dataSrc = Join-Path $appDir 'data'
+    if (-not (Test-Path -LiteralPath $dataSrc)) {
+        return
+    }
+    $dataOut = Join-Path $OutputDir 'data'
+    New-Item -ItemType Directory -Path $dataOut -Force | Out-Null
+    foreach ($f in Get-ChildItem -LiteralPath $dataSrc -File) {
+        if ($f.Name -match '\.\.|/|\\') {
+            throw "data/$($f.Name): nome recusado."
+        }
+        $dest = Join-Path $dataOut $f.Name
+        Copy-Item -LiteralPath $f.FullName -Destination $dest -Force
+        $Entries["data/$($f.Name)"] = $dest
+    }
 }
-if (-not $built) {
-    throw "Binario do app nao gerado em $appMirror\build."
-}
 
-$appBin = Join-Path $OutputDir 'app.bin'
-Copy-Item -LiteralPath $built -Destination $appBin -Force
-$null = Assert-BuiltVersion -BinPath $appBin -Version $Version
-Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $OutputDir 'app.json') -Force
+$kind = if ($manifest.kind) { [string] $manifest.kind } else { 'native' }
+$entries = @{}
+if ($kind -eq 'content') {
+    $contentSrc = Join-Path $appDir 'content.json'
+    if (-not (Test-Path -LiteralPath $contentSrc)) {
+        throw "kind=content exige content.json em $appDir."
+    }
+    Write-Host "Empacotando app de conteudo $App $Version (sem IDF) ..." -ForegroundColor Cyan
+    Add-AppDataEntries -Entries $entries
+} else {
+    $mirror = Get-IdfMirrorRoot
+    $appMirror = Join-Path $mirror "apps\$App"
+    Write-Host "Espelhando $App para $appMirror ..." -ForegroundColor Cyan
+    Invoke-RobocopyMirror -Source $appDir -Destination $appMirror
+    Invoke-RobocopyMirror -Source $sdkSrc -Destination (Join-Path $mirror 'esp-sdk')
+    Copy-OsVersionJsonToSdk -ProjectRoot $ProjectRoot -SdkDest (Join-Path $mirror 'esp-sdk')
+    Sync-IdfSdkconfigFromDefaults -ProjectDir $appMirror
+
+    Write-Host "Compilando app da placa $App $Version ..." -ForegroundColor Cyan
+    Invoke-IdfBuild -ProjectDir $appMirror -ExtraArgs @('build')
+
+    $candidates = @(
+        (Join-Path $appMirror "build\esp_$($slug).bin"),
+        (Join-Path $appMirror 'build\esp_sobre.bin'),
+        (Get-ChildItem -LiteralPath (Join-Path $appMirror 'build') -Filter '*.bin' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch 'bootloader|partition|ota_data' } |
+            Select-Object -First 1 -ExpandProperty FullName)
+    )
+    $built = $null
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path -LiteralPath $c)) { $built = $c; break }
+    }
+    if (-not $built) {
+        throw "Binario do app nao gerado em $appMirror\build."
+    }
+
+    $appBin = Join-Path $OutputDir 'app.bin'
+    Copy-Item -LiteralPath $built -Destination $appBin -Force
+    $null = Assert-BuiltVersion -BinPath $appBin -Version $Version
+    $entries['app.bin'] = $appBin
+    Add-AppDataEntries -Entries $entries
+}
 
 $zipName = "esp-$slug-$Version.zip"
 $zipPath = Join-Path $OutputDir $zipName
-New-StoredZip -ZipPath $zipPath -Entries @{
-    'app.bin'  = $appBin
-    'app.json' = (Join-Path $OutputDir 'app.json')
-}
+New-StoredZip -ZipPath $zipPath -Entries $entries
 $hash = Write-Sha256Sidecar -FilePath $zipPath
 
 Write-Host ""

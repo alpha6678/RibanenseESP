@@ -3,6 +3,7 @@
 #include "app_taxonomy.h"
 #include "esp_err.h"
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* Metadados na UI do OS (home/catalogo), nao pastas no cartao.
@@ -12,7 +13,8 @@
 #define STORE_ID_MAX   48
 #define STORE_NAME_MAX 32
 #define STORE_VER_MAX  16
-#define STORE_PATH_MAX 128
+/* /sdcard/apps/<id 47>/content.json cabe em 80. 128 copiado 8x na UI. */
+#define STORE_PATH_MAX 96
 #define STORE_URL_MAX  192
 
 typedef enum {
@@ -29,6 +31,16 @@ typedef struct {
     char bin[STORE_PATH_MAX];
 } store_app_t;
 
+#define STORE_CONTENT_SCREENS 6
+#define STORE_CONTENT_TITLE   24
+#define STORE_CONTENT_FILE    28
+
+typedef struct {
+    char title[STORE_CONTENT_TITLE];
+    char file[STORE_CONTENT_FILE];
+    uint8_t type; /* 0 lista, 1 texto */
+} store_content_scr_t;
+
 typedef struct {
     char id[STORE_ID_MAX];
     char name[STORE_NAME_MAX];
@@ -43,6 +55,11 @@ typedef struct {
 } store_remote_t;
 
 int store_scan_installed_tax(store_app_t *out, uint8_t *cats, uint8_t *subs, int max);
+bool store_app_is_content(const store_app_t *app);
+/* Indice curto (content.json). A massa fica em data/. -1 se falhar. */
+int store_content_index(const char *dir_abs, const char *entry,
+                        char *title, size_t tcap,
+                        store_content_scr_t *scrs, int max);
 /* Leitura direta do catalogo em cache. Evita uma segunda copia do vetor na
  * UI; os ponteiros valem ate o proximo store_catalog_start(). */
 int store_catalog_count(void);

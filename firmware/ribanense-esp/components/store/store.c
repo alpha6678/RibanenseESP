@@ -59,6 +59,29 @@ static int read_text(const char *abs, char *out, int cap)
     return n;
 }
 
+static bool entry_name_ok(const char *s)
+{
+    if (s == NULL || s[0] == 0 || strlen(s) >= 24) {
+        return false;
+    }
+    return strchr(s, '/') == NULL && strchr(s, '\\') == NULL && strstr(s, "..") == NULL;
+}
+
+static bool content_file_ok(const char *rel)
+{
+    if (rel == NULL || rel[0] == 0 || rel[0] == '/' || strstr(rel, "..") != NULL) {
+        return false;
+    }
+    const char *slash = strchr(rel, '/');
+    if (slash == NULL) {
+        return entry_name_ok(rel);
+    }
+    if (strchr(slash + 1, '/') != NULL) {
+        return false;
+    }
+    return (slash - rel) == 4 && memcmp(rel, "data", 4) == 0 && entry_name_ok(slash + 1);
+}
+
 static void tax_from_json(const cJSON *root, uint8_t *cat, uint8_t *sub)
 {
     const cJSON *jc = cJSON_GetObjectItem(root, "category");
@@ -86,6 +109,8 @@ static bool parse_app_json(const char *json, store_app_t *app, uint8_t *cat, uin
     }
     const cJSON *ver = cJSON_GetObjectItem(root, "version");
     const cJSON *bin = cJSON_GetObjectItem(root, "entryBinary");
+    const cJSON *entc = cJSON_GetObjectItem(root, "entryContent");
+    const cJSON *kind = cJSON_GetObjectItem(root, "kind");
     if (!cJSON_IsString(id) || id->valuestring[0] == 0) {
         cJSON_Delete(root);
         return false;
@@ -93,8 +118,19 @@ static bool parse_app_json(const char *json, store_app_t *app, uint8_t *cat, uin
     strncpy(app->id, id->valuestring, STORE_ID_MAX - 1);
     strncpy(app->name, cJSON_IsString(name) ? name->valuestring : id->valuestring, STORE_NAME_MAX - 1);
     strncpy(app->version, cJSON_IsString(ver) ? ver->valuestring : "0.0.0", STORE_VER_MAX - 1);
-    const char *entry = cJSON_IsString(bin) ? bin->valuestring : "app.bin";
-    snprintf(app->bin, sizeof(app->bin), "%.90s/%.20s", app->path, entry);
+    const bool content = cJSON_IsString(kind) && strcmp(kind->valuestring, "content") == 0;
+    const char *entry;
+    if (content) {
+        entry = (cJSON_IsString(entc) && entry_name_ok(entc->valuestring)) ? entc->valuestring
+                                                                          : "content.json";
+    } else {
+        entry = (cJSON_IsString(bin) && entry_name_ok(bin->valuestring)) ? bin->valuestring : "app.bin";
+    }
+    int nb = snprintf(app->bin, sizeof(app->bin), "%s/%s", app->path, entry);
+    if (nb <= 0 || (size_t)nb >= sizeof(app->bin)) {
+        cJSON_Delete(root);
+        return false;
+    }
     app->id[STORE_ID_MAX - 1] = 0;
     app->name[STORE_NAME_MAX - 1] = 0;
     app->version[STORE_VER_MAX - 1] = 0;
@@ -162,6 +198,67 @@ int store_scan_installed_tax(store_app_t *out, uint8_t *cats, uint8_t *subs, int
         n++;
     }
     closedir(d);
+    return n;
+}
+
+bool store_app_is_content(const store_app_t *app)
+{
+    if (app == NULL || app->bin[0] == 0) {
+        return false;
+    }
+    const char *base = strrchr(app->bin, '/');
+    base = base ? base + 1 : app->bin;
+    return strcmp(base, "content.json") == 0;
+}
+
+int store_content_index(const char *dir_abs, const char *entry,
+                        char *title, size_t tcap,
+                        store_content_scr_t *scrs, int max)
+{
+    if (dir_abs == NULL || entry == NULL || !entry_name_ok(entry) || scrs == NULL || max <= 0) {
+        return -1;
+    }
+    char path[180];
+    int npath = snprintf(path, sizeof(path), "%s/%s", dir_abs, entry);
+    if (npath <= 0 || (size_t)npath >= sizeof(path)) {
+        return -1;
+    }
+    char json[512];
+    if (read_text(path, json, sizeof(json)) < 0) {
+        return -1;
+    }
+    cJSON *root = cJSON_Parse(json);
+    if (root == NULL) {
+        return -1;
+    }
+    if (title != NULL && tcap > 0) {
+        const cJSON *jt = cJSON_GetObjectItem(root, "title");
+        strncpy(title, cJSON_IsString(jt) ? jt->valuestring : "", tcap - 1);
+        title[tcap - 1] = 0;
+    }
+    int n = 0;
+    const cJSON *screens = cJSON_GetObjectItem(root, "screens");
+    if (cJSON_IsArray(screens)) {
+        const cJSON *it;
+        cJSON_ArrayForEach(it, screens) {
+            if (n >= max) {
+                break;
+            }
+            const cJSON *jt = cJSON_GetObjectItem(it, "title");
+            const cJSON *jf = cJSON_GetObjectItem(it, "file");
+            const cJSON *ty = cJSON_GetObjectItem(it, "type");
+            if (!cJSON_IsString(jf) || !content_file_ok(jf->valuestring)) {
+                continue;
+            }
+            memset(&scrs[n], 0, sizeof(scrs[n]));
+            strncpy(scrs[n].title, cJSON_IsString(jt) ? jt->valuestring : jf->valuestring,
+                    STORE_CONTENT_TITLE - 1);
+            strncpy(scrs[n].file, jf->valuestring, STORE_CONTENT_FILE - 1);
+            scrs[n].type = (cJSON_IsString(ty) && strcmp(ty->valuestring, "text") == 0) ? 1 : 0;
+            n++;
+        }
+    }
+    cJSON_Delete(root);
     return n;
 }
 
@@ -407,6 +504,42 @@ static uint32_t rd32(const uint8_t *p)
     return (uint32_t)(p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24));
 }
 
+static bool zip_rel_ok(char *name, char *rel, size_t rel_max)
+{
+    if (name == NULL || rel == NULL || rel_max == 0) {
+        return false;
+    }
+    for (char *p = name; *p != 0; p++) {
+        if (*p == '\\') {
+            *p = '/';
+        }
+    }
+    if (name[0] == '/' || strstr(name, "..") != NULL) {
+        return false;
+    }
+    const char *slash = strchr(name, '/');
+    if (slash == NULL) {
+        if (!entry_name_ok(name)) {
+            return false;
+        }
+        snprintf(rel, rel_max, "%s", name);
+        return true;
+    }
+    if (strchr(slash + 1, '/') != NULL) {
+        return false;
+    }
+    if ((slash - name) == 4 && memcmp(name, "data", 4) == 0 && entry_name_ok(slash + 1)) {
+        snprintf(rel, rel_max, "data/%s", slash + 1);
+        return true;
+    }
+    /* Pacote antigo: pasta extra no zip vira so o basename. */
+    if (!entry_name_ok(slash + 1)) {
+        return false;
+    }
+    snprintf(rel, rel_max, "%s", slash + 1);
+    return true;
+}
+
 static esp_err_t unzip_stored(const char *zip_abs, const char *dest_dir)
 {
     FILE *z = fopen(zip_abs, "rb");
@@ -448,18 +581,32 @@ static esp_err_t unzip_stored(const char *zip_abs, const char *dest_dir)
             }
             continue;
         }
-        const char *base = strrchr(name, '/');
-        base = base ? base + 1 : name;
-        if (base[0] == 0) {
-            continue;
-        }
         if (method != 0) {
             ESP_LOGE(TAG, "zip compactado (%s)", name);
             fclose(z);
             return ESP_ERR_NOT_SUPPORTED;
         }
+        char rel[40];
+        if (!zip_rel_ok(name, rel, sizeof(rel))) {
+            ESP_LOGE(TAG, "zip caminho recusado (%s)", name);
+            fclose(z);
+            return ESP_ERR_INVALID_ARG;
+        }
+        if (strncmp(rel, "data/", 5) == 0) {
+            char dir[180];
+            int nd = snprintf(dir, sizeof(dir), "%s/data", dest_dir);
+            if (nd <= 0 || (size_t)nd >= sizeof(dir) ||
+                (mkdir(dir, 0775) != 0 && errno != EEXIST)) {
+                fclose(z);
+                return ESP_FAIL;
+            }
+        }
         char outp[180];
-        snprintf(outp, sizeof(outp), "%s/%s", dest_dir, base);
+        int no = snprintf(outp, sizeof(outp), "%s/%s", dest_dir, rel);
+        if (no <= 0 || (size_t)no >= sizeof(outp)) {
+            fclose(z);
+            return ESP_ERR_INVALID_SIZE;
+        }
         FILE *o = fopen(outp, "wb");
         if (o == NULL) {
             fclose(z);

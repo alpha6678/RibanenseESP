@@ -34,6 +34,7 @@ Antes de mexer em firmware, build ou CLI, leia
 São erros já reproduzidos na placa física, com sintoma, causa e correção:
 
 1. Pilha de tarefa grande / buffer dinâmico / vetor estático derruba o TLS.
+   LVGL 9 defaulta o pool em 64 KB (`LV_MEM_SIZE`); o teto exige 48 KB (1h).
 1f. Restaurar pinta sucesso sem o `.bin` no cartão.
 1g. Home abre antes do ponto de restauração terminar no microSD.
 2. `version.json` sem reconfigure do CMake compila a versão antiga no binário.

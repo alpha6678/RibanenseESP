@@ -247,13 +247,14 @@ antigo não vê releases novos — primeiro flash por USB
 
 ## Apps no microSD
 
-O OS é o launcher da placa. Apps nativos (projetos IDF em
+O OS é o launcher da placa. Apps (projetos IDF ou pasta de conteúdo em
 `firmware/apps/`) instalam-se em `/sdcard/apps/<id>/` a partir de
 [`catalog/esp-catalog.json`](../catalog/esp-catalog.json). A home e o
 **Catalogo** agrupam por categoria/subcategoria (teto 8 apps, armadilha
-1c). Abrir um app grava o `.bin` no slot OTA inativo e reinicia;
-**Voltar** devolve o boot ao OS (NVS `rib_os`/`slot`). Contrato:
-[`ESP_APP_SDK.md`](ESP_APP_SDK.md).
+1c). `kind=native` grava o `.bin` no slot OTA inativo e reinicia;
+`kind=content` abre no OS, sem reboot. **Voltar** no nativo devolve o
+boot ao OS (NVS `rib_os`/`slot`). Arquivos grandes ficam em `data/`.
+Contrato: [`ESP_APP_SDK.md`](ESP_APP_SDK.md).
 
 No mount o OS cria `apps/`, `os/`, `tmp/` (downloads) e `cache/` (JSON
 do catálogo). `rbesp flash --zero` formata o cartão nesse mount (FAT32

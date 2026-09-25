@@ -1,0 +1,4 @@
+## Leitor — dependências
+dependencies:
+  lvgl/lvgl:
+    version: "^9.2.0"

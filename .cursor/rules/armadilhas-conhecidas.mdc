@@ -55,6 +55,18 @@ teto exige ensaio verde em hardware.
 lado das outras `bool` voltou ao teto. No 0.4.8 o uso ficou em **96128 B**
 (folga 8 B).
 
+## 1h. LVGL 9 defaulta o pool para 64 KB e o check cai
+
+**Sintoma** `rbesp check` acusa `DRAM estatica 112616 B` (teto `96136`),
+folga **-16480 B**. O código novo do OS não tinha vetor desse tamanho.
+**Causa** O LVGL 9 passou a preferir `CONFIG_LV_MEM_SIZE` em **bytes**.
+O default do componente é `65536`. `CONFIG_LV_MEM_SIZE_KILOBYTES=48`
+fica deprecado e é ignorado se os dois existem — o pool de 48 KB vira
+64 KB de BSS (`work_mem_int`).
+**Correção** `CONFIG_LV_MEM_SIZE=49152` em `sdkconfig.defaults`. Medido
+no 0.6.0: uso **95632 B**, folga **504 B**.
+**Nunca** deixar o default 64 KB, nem subir o teto para acomodar o pool.
+
 ## 1d. Manifesto em cache faz a placa dizer que está atualizada
 
 **Sintoma** Logo depois de um release, a placa responde `atual` ao Atualizar,

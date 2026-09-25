@@ -1,9 +1,14 @@
 # SDK dos apps da placa
 
-Contrato entre o **OS** (RibanenseESP, na flash) e cada **app nativo**
+Contrato entre o **OS** (RibanenseESP, na flash) e cada **app**
 instalado no microSD. Espelho do [`PLUGIN_SDK.md`](PLUGIN_SDK.md) do Windows:
 manifesto + SemVer próprio + GitHub Release. Não há `.exe` — o ESP32 não
 inicia um segundo `app_main` a partir do cartão.
+
+O pacote pode ser maior que o slot (1,94 MB) e maior que a SRAM. O que
+cabe no slot é só o **código nativo**. Tabelas e texto ficam em
+`/sdcard/apps/<id>/data/` e são lidos em pedaços de 1 KB. Um app
+`kind=content` nem leva `.bin`: o OS abre o índice e pagina o arquivo.
 
 ## Analogia
 
@@ -39,10 +44,11 @@ lista, e recusam slugs do `.c` diferentes do JSON.
 ```json
 {
   "id": "com.ribanense.esp.exemplo",
+  "kind": "native",
   "name": "Exemplo",
   "publicName": "Exemplo",
   "version": "0.1.0",
-  "minimumOsVersion": "0.5.0",
+  "minimumOsVersion": "0.6.0",
   "entryBinary": "app.bin",
   "category": "ferramentas",
   "subcategory": "calculadora",
@@ -53,18 +59,29 @@ lista, e recusam slugs do `.c` diferentes do JSON.
 | Campo | Obrigatório | Descrição |
 |-------|-------------|-----------|
 | `id` | sim | `com.ribanense.esp.<slug>` |
+| `kind` | não | `native` (omisso) ou `content`. Conteúdo não leva `app.bin`. |
 | `version` | sim | SemVer do app (independente do OS) |
-| `minimumOsVersion` | sim | OS mínimo que sabe instalar/abrir o pacote |
-| `entryBinary` | sim | Nome do firmware dentro do zip (`app.bin`) |
+| `minimumOsVersion` | sim | OS mínimo que sabe instalar/abrir o pacote (`content` exige 0.6.0) |
+| `entryBinary` | se `native` | Nome do firmware dentro do zip (`app.bin`) |
+| `entryContent` | se `content` | Índice curto (`content.json`, ≤ ~512 B) |
 | `category` | sim | Slug da [`app-taxonomy.json`](../catalog/app-taxonomy.json) |
 | `subcategory` | se a categoria não for plana | Slug da subcategoria |
 | `githubTagPrefix` | sim | Prefixo da tag (`esp-<slug>-v`) |
+
+`content.json` é só o índice (lista de telas `list` ou `text`, cada uma
+apontando para `data/<arquivo>`). A massa não entra nesse JSON.
+
+| `kind` | Pasta | Ao tocar |
+|--------|-------|----------|
+| `content` | `app.json` + `content.json` + `data/` | Motor C no OS. Sem gravar flash, sem reboot. |
+| `native` | `app.json` + `app.bin` + opcional `data/` | Stream do `.bin` para o slot inativo e reinicia. O app lê `data/` com `storage_app_abs` / `storage_read_at`. |
 
 ## Pacote e instalação
 
 `rbesp app publish <Slug>` (ou `rbesp publish all`) gera
 `esp-<slug>-<ver>.zip` **sem compressão** (o unzip na placa só aceita store)
-+ `.sha256` + `app.json`.
++ `.sha256` + `app.json`. `kind=content` **não** chama o IDF. O zip pode
+trazer `content.json` e `data/<arquivo>` (um nível). O unzip recusa `..`.
 
 O release preenche `url` e `sha256` em [`catalog/esp-catalog.json`](../catalog/esp-catalog.json)
 (URL raw, sem redirect do GitHub Releases).
@@ -74,7 +91,7 @@ antes de recriar estas pastas):
 
 | Pasta | Uso |
 |-------|-----|
-| `/sdcard/apps/<id>/` | App instalado (`app.bin` + `app.json`) |
+| `/sdcard/apps/<id>/` | App instalado (`app.json` + `app.bin` e/ou `content.json` + `data/`) |
 | `/sdcard/os/` | Dados do OS (Wi-Fi em `os/wifi/`, brilho em `os/settings.json`) |
 | `/sdcard/tmp/` | Download e unzip (`pkg.zip`) |
 | `/sdcard/cache/` | JSON do catálogo (`catalog.json`) |
@@ -89,13 +106,22 @@ Apps não devem gravar em `/sdcard/os/`.
 
 ## Abrir e voltar
 
+**Conteúdo:** o OS lê `content.json` e pagina o arquivo. Voltar troca de
+tela. Não há `SW_CPU_RESET`.
+
+**Nativo:**
+
 1. O OS grava o slot atual em NVS (`rib_os` / `slot`).
 2. Faz stream de `app.bin` para o slot OTA inativo (chunks; nunca o arquivo na SRAM).
 3. Reinicia no app.
 4. O app chama `shell_boot_os()` (botão Voltar) e o bootloader volta ao OS
    (home na raiz, não na pasta de onde saiu).
 
-OTA do OS só com a placa no OS. O app no SD não é apagado.
+OTA do OS só com a placa no OS. O app no SD não é apagado. `data/` não
+entra no slot.
+
+Exemplos no repositório: `firmware/apps/Amostra` (content) e
+`firmware/apps/Leitor` (nativo + `data/`).
 
 ## UI
 

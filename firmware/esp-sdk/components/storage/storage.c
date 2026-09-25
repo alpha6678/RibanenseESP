@@ -329,3 +329,60 @@ int storage_list_files(const char *rel_dir, char names[][64], int max)
     closedir(d);
     return n;
 }
+
+static bool app_id_ok(const char *id)
+{
+    if (id == NULL || id[0] == 0 || strlen(id) >= 48) {
+        return false;
+    }
+    if (strchr(id, '/') != NULL || strchr(id, '\\') != NULL || strstr(id, "..") != NULL) {
+        return false;
+    }
+    return true;
+}
+
+static bool app_rel_ok(const char *rel)
+{
+    if (rel == NULL || rel[0] == 0 || rel[0] == '/' || strstr(rel, "..") != NULL) {
+        return false;
+    }
+    const char *slash = strchr(rel, '/');
+    if (slash == NULL) {
+        return strchr(rel, '\\') == NULL;
+    }
+    if (strchr(slash + 1, '/') != NULL || strchr(rel, '\\') != NULL) {
+        return false;
+    }
+    return (slash - rel) == 4 && memcmp(rel, "data", 4) == 0 && slash[1] != 0;
+}
+
+esp_err_t storage_app_abs(const char *app_id, const char *rel, char *out, size_t max)
+{
+    if (!s_ready || !app_id_ok(app_id) || !app_rel_ok(rel) || out == NULL || max == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char rel_full[160];
+    int n = snprintf(rel_full, sizeof(rel_full), "%s/%s/%s", STORAGE_APPS_DIR, app_id, rel);
+    if (n <= 0 || (size_t)n >= sizeof(rel_full)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return storage_abs(rel_full, out, max);
+}
+
+int storage_read_at(const char *abs, long offset, void *buf, size_t max)
+{
+    if (!s_ready || abs == NULL || buf == NULL || max == 0) {
+        return -1;
+    }
+    FILE *f = fopen(abs, "rb");
+    if (f == NULL) {
+        return -1;
+    }
+    if (offset > 0 && fseek(f, offset, SEEK_SET) != 0) {
+        fclose(f);
+        return -1;
+    }
+    size_t n = fread(buf, 1, max, f);
+    fclose(f);
+    return (int)n;
+}

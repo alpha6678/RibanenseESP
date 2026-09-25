@@ -24,6 +24,9 @@ CONFIG_MBEDTLS_DYNAMIC_BUFFER=n
 CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
 CONFIG_LWIP_IPV6=n
 CONFIG_LWIP_SNTP_MAX_SERVERS=3
+# LVGL 9 passou a preferir LV_MEM_SIZE em bytes (default 65536). Sem isto
+# o pool some 64 KB de BSS e o rbesp check estoura o teto de DRAM.
+CONFIG_LV_MEM_SIZE=49152
 CONFIG_LV_MEM_SIZE_KILOBYTES=48
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 # Sem LFN o FAT 8.3 recusa settings.json.tmp / networks.json.tmp (dois pontos):

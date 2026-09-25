@@ -416,12 +416,17 @@ function Invoke-AppMirrorBuild {
     if (-not (Test-Path -LiteralPath (Join-Path $appDir 'app.json'))) {
         throw "App da placa nao encontrado: $appDir"
     }
+    $man = Get-Content -LiteralPath (Join-Path $appDir 'app.json') -Raw | ConvertFrom-Json
+    if ([string] $man.kind -eq 'content') {
+        throw "App '$Slug' e kind=content (sem firmware). Use rbesp app publish $Slug."
+    }
     $mirror = Get-IdfMirrorRoot
     $appMirror = Join-Path $mirror "apps\$Slug"
     Write-Host "Espelhando $Slug para $appMirror ..." -ForegroundColor Cyan
     Invoke-RobocopyMirror -Source $appDir -Destination $appMirror
     Invoke-RobocopyMirror -Source (Join-Path $ProjectRoot 'firmware\esp-sdk') -Destination (Join-Path $mirror 'esp-sdk')
     Copy-OsVersionJsonToSdk -ProjectRoot $ProjectRoot -SdkDest (Join-Path $mirror 'esp-sdk')
+    Sync-IdfSdkconfigFromDefaults -ProjectDir $appMirror
     Invoke-IdfBuild -ProjectDir $appMirror -ExtraArgs $IdfArgs
 }
 

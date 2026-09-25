@@ -1,0 +1,12 @@
+{
+  "id": "com.ribanense.esp.leitor",
+  "kind": "native",
+  "name": "Leitor",
+  "publicName": "Leitor",
+  "version": "0.1.0",
+  "minimumOsVersion": "0.6.0",
+  "entryBinary": "app.bin",
+  "category": "ferramentas",
+  "subcategory": "texto",
+  "githubTagPrefix": "esp-leitor-v"
+}

@@ -29,3 +29,10 @@ esp_err_t storage_abs(const char *rel_path, char *out, size_t max);
 int storage_list_dirs(const char *rel_dir, char names[][64], int max);
 /* Arquivos regulares da pasta, sem descer. Nomes na pilha do chamador. */
 int storage_list_files(const char *rel_dir, char names[][64], int max);
+
+#define STORAGE_IO_CHUNK 1024
+/* Caminho absoluto de um arquivo do app. rel so aceita nome solto ou
+ * data/<arquivo> — sem .. e sem segundo nivel. */
+esp_err_t storage_app_abs(const char *app_id, const char *rel, char *out, size_t max);
+/* Le no maximo max bytes a partir de offset. Devolve lidos, ou -1. */
+int storage_read_at(const char *abs, long offset, void *buf, size_t max);

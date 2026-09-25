@@ -81,6 +81,12 @@ static uint8_t s_home_folder_sub = UI_FOLDER_NONE;
 static uint8_t s_store_folder_cat = UI_FOLDER_NONE;
 static uint8_t s_store_folder_sub = UI_FOLDER_NONE;
 static char s_launch_bin[STORE_PATH_MAX];
+static uint8_t s_content_mode;
+static uint8_t s_content_scr;
+static uint16_t s_content_page;
+static lv_obj_t *s_content;
+static lv_obj_t *s_content_list;
+static lv_obj_t *s_content_status;
 static store_app_t s_home_apps[STORE_MAX_APPS];
 static int s_home_app_n;
 static int s_remote_n;
@@ -105,6 +111,9 @@ static void destroy_brightness(void);
 static void show_store(void);
 static void show_recover(void);
 static void destroy_recover(void);
+static void show_content(void);
+static void destroy_content(void);
+static void fill_content(void);
 static void show_pass(const char *ssid, uint8_t auth);
 static void show_info(const char *ssid);
 static void destroy_info(void);
@@ -661,10 +670,203 @@ static lv_obj_t *list_row(lv_obj_t *list, const char *text, lv_color_t color,
 static void on_open_settings(lv_event_t *e);
 static void on_open_store(lv_event_t *e);
 
+#define CONTENT_ROWS 5
+
+static void content_set_title(const char *text)
+{
+    if (s_content == NULL || text == NULL) {
+        return;
+    }
+    lv_obj_t *bar = lv_obj_get_child(s_content, 0);
+    lv_obj_t *title = bar != NULL ? lv_obj_get_child(bar, 1) : NULL;
+    if (title != NULL) {
+        lv_label_set_text(title, text);
+    }
+}
+
+static void content_set_status(const char *msg, lv_color_t color)
+{
+    label_text(s_content_status, msg);
+    label_color(s_content_status, color);
+}
+
+static void strip_nl(char *line)
+{
+    size_t n = strlen(line);
+    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) {
+        line[--n] = 0;
+    }
+}
+
+static void on_content_page(lv_event_t *e)
+{
+    int d = (int)(uintptr_t)lv_event_get_user_data(e);
+    if (d < 0 && s_content_page > 0) {
+        s_content_page--;
+    } else if (d > 0) {
+        s_content_page++;
+    }
+    fill_content();
+}
+
+static void on_content_open_scr(lv_event_t *e)
+{
+    int idx = (int)(uintptr_t)lv_event_get_user_data(e);
+    store_content_scr_t scrs[STORE_CONTENT_SCREENS];
+    char title[STORE_CONTENT_TITLE];
+    int n = store_content_index(s_launch_bin, "content.json", title, sizeof(title),
+                                scrs, STORE_CONTENT_SCREENS);
+    if (idx < 0 || idx >= n) {
+        return;
+    }
+    s_content_scr = (uint8_t)idx;
+    s_content_mode = scrs[idx].type == 1 ? 2 : 1;
+    s_content_page = 0;
+    fill_content();
+}
+
+static void fill_content_file(const char *abs, const char *title)
+{
+    content_set_title(title);
+    FILE *f = fopen(abs, "r");
+    if (f == NULL) {
+        content_set_status("arquivo ausente", ui_color_red());
+        return;
+    }
+    char line[96];
+    int skip = (int)s_content_page * CONTENT_ROWS;
+    int seen = 0;
+    int shown = 0;
+    bool more = false;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        strip_nl(line);
+        if (line[0] == 0) {
+            continue;
+        }
+        if (seen++ < skip) {
+            continue;
+        }
+        if (shown >= CONTENT_ROWS) {
+            more = true;
+            break;
+        }
+        if (s_content_mode == 1) {
+            (void)list_row(s_content_list, line, ui_color_white(), NULL, NULL);
+        } else {
+            lv_obj_t *lab = lv_label_create(s_content_list);
+            lv_label_set_long_mode(lab, LV_LABEL_LONG_WRAP);
+            lv_obj_set_width(lab, lv_pct(100));
+            lv_label_set_text(lab, line);
+            lv_obj_set_style_text_color(lab, ui_color_white(), 0);
+        }
+        shown++;
+    }
+    fclose(f);
+    if (s_content_page > 0) {
+        (void)list_row(s_content_list, "anterior", ui_color_blue(), on_content_page,
+                       (void *)(uintptr_t)(int)-1);
+    }
+    if (more) {
+        (void)list_row(s_content_list, "proximo", ui_color_blue(), on_content_page,
+                       (void *)(uintptr_t)1);
+    }
+    char sum[28];
+    snprintf(sum, sizeof(sum), "pagina %u", (unsigned)s_content_page + 1);
+    content_set_status(sum, ui_color_white());
+}
+
+static void fill_content(void)
+{
+    if (s_content_list == NULL) {
+        return;
+    }
+    lv_obj_clean(s_content_list);
+    store_content_scr_t scrs[STORE_CONTENT_SCREENS];
+    char title[STORE_CONTENT_TITLE];
+    int n = store_content_index(s_launch_bin, "content.json", title, sizeof(title),
+                                scrs, STORE_CONTENT_SCREENS);
+    if (n < 0) {
+        content_set_title("app");
+        content_set_status("sem indice", ui_color_red());
+        return;
+    }
+    if (s_content_mode == 0) {
+        content_set_title(title[0] != 0 ? title : "app");
+        if (n == 0) {
+            content_set_status("vazio", ui_color_red());
+            return;
+        }
+        for (int i = 0; i < n; i++) {
+            (void)list_row(s_content_list, scrs[i].title, ui_color_white(), on_content_open_scr,
+                           (void *)(uintptr_t)i);
+        }
+        content_set_status("", ui_color_white());
+        return;
+    }
+    if (s_content_scr >= (uint8_t)n) {
+        content_set_status("tela", ui_color_red());
+        return;
+    }
+    char abs[180];
+    int np = snprintf(abs, sizeof(abs), "%s/%s", s_launch_bin, scrs[s_content_scr].file);
+    if (np <= 0 || (size_t)np >= sizeof(abs)) {
+        content_set_status("caminho", ui_color_red());
+        return;
+    }
+    fill_content_file(abs, title[0] != 0 ? title : "app");
+}
+
+static void destroy_content(void)
+{
+    if (s_content == NULL) {
+        return;
+    }
+    lv_obj_t *old = s_content;
+    s_content = NULL;
+    s_content_list = NULL;
+    s_content_status = NULL;
+    lv_obj_delete_async(old);
+}
+
+static void on_content_back(lv_event_t *e)
+{
+    (void)e;
+    if (s_content_mode != 0) {
+        s_content_mode = 0;
+        s_content_page = 0;
+        fill_content();
+        return;
+    }
+    show_home();
+}
+
+static void show_content(void)
+{
+    destroy_content();
+    s_content = lv_obj_create(NULL);
+    style_screen(s_content);
+    (void)make_chrome(s_content, "app", on_content_back, NULL);
+    s_content_status = lv_label_create(s_content);
+    lv_label_set_text(s_content_status, "");
+    lv_obj_set_style_text_color(s_content_status, ui_color_white(), 0);
+    s_content_list = make_scroll_list(s_content);
+    fill_content();
+    lv_screen_load(s_content);
+}
+
 static void on_open_installed(lv_event_t *e)
 {
     int idx = (int)(uintptr_t)lv_event_get_user_data(e);
     if (idx < 0 || idx >= s_home_app_n) {
+        return;
+    }
+    if (store_app_is_content(&s_home_apps[idx])) {
+        strncpy(s_launch_bin, s_home_apps[idx].path, sizeof(s_launch_bin) - 1);
+        s_launch_bin[sizeof(s_launch_bin) - 1] = 0;
+        s_content_mode = 0;
+        s_content_scr = 0;
+        s_content_page = 0;
+        show_content();
         return;
     }
     start_launch(s_home_apps[idx].bin);
@@ -1602,6 +1804,7 @@ static void show_home(void)
     destroy_store();
     destroy_recover();
     destroy_brightness();
+    destroy_content();
     if (s_wifi) {
         lv_obj_t *old = s_wifi;
         s_wifi = NULL;

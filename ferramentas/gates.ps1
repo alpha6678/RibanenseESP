@@ -225,6 +225,17 @@ function Test-AppTaxonomy {
                 throw "app.json $($d.Name): category '$cid' fora da taxonomia."
             }
             $node = @($cats | Where-Object { $_.id -eq $cid })[0]
+            $kind = if ($m.kind) { [string] $m.kind } else { 'native' }
+            if ($kind -notin @('native', 'content')) {
+                throw "app.json $($d.Name): kind '$kind' invalido (native|content)."
+            }
+            if ($kind -eq 'content') {
+                if (-not (Test-Path -LiteralPath (Join-Path $d.FullName 'content.json'))) {
+                    throw "app.json $($d.Name): kind=content sem content.json."
+                }
+            } elseif (-not (Test-Path -LiteralPath (Join-Path $d.FullName 'CMakeLists.txt'))) {
+                throw "app.json $($d.Name): kind=native sem CMakeLists.txt."
+            }
             if ($node.flat) { continue }
             $sid = [string] $m.subcategory
             $okSub = @($node.subs | Where-Object { $_.id -eq $sid }).Count -gt 0
