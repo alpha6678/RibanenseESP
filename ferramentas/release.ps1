@@ -170,8 +170,8 @@ try {
                 $entry.version = $Version
                 $entry.url = $url
                 $entry.sha256 = $hash
-                $entry.githubOwner = $gh.Owner
-                $entry.githubRepo = $gh.Repo
+                $entry | Add-Member -NotePropertyName githubOwner -NotePropertyValue $gh.Owner -Force
+                $entry | Add-Member -NotePropertyName githubRepo -NotePropertyValue $gh.Repo -Force
                 $hit = $true
             }
         }

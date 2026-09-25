@@ -7,8 +7,8 @@
       "publicName": "Palavras",
       "version": "0.1.0",
       "minimumOsVersion": "0.6.0",
-      "url": "",
-      "sha256": "",
+      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-palavras-0.1.0.zip",
+      "sha256": "a44be0182e3fa946994794f743bd5e8c771fa54c40d50594ec14c3dc5c1f8375",
       "category": "ferramentas",
       "subcategory": "texto"
     }
