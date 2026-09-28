@@ -71,8 +71,13 @@ rbesp sign
 rbesp verify
 ```
 
+`keygen` só na primeira vez de um clone, quando `secrets/` ainda não tem
+`ribanense-ota.pem`. Quem já tem o PEM deste repositório não gera outro:
+as placas gravadas com a pública atual só aceitam assinatura desse par.
+
 Repositório público: qualquer um baixa o `.bin`; sem a privada ninguém
-produz um `sig` que a placa aceite.
+produz um `sig` que a placa aceite. A variação de outra pessoa começa com
+`rbesp keygen` e um flash USB, como no [README](../README.md).
 
 ## Rollback
 

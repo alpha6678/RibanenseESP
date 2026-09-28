@@ -447,10 +447,12 @@ function Get-ProjectIdentity {
     $owner = [string] $info.githubOwner
     $repo = [string] $info.githubRepo
     $email = [string] $info.gitEmail
+    $name = [string] $info.gitName
+    if ([string]::IsNullOrWhiteSpace($name)) { $name = $owner }
     return [pscustomobject]@{
         Owner   = $owner
         Repo    = $repo
-        Name    = $owner
+        Name    = $name
         Email   = $email
         Remote  = "https://github.com/$owner/$repo.git"
     }

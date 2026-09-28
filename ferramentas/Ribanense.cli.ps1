@@ -66,7 +66,7 @@ Primeiro USB (placa nova ou recuperacao):
 
 Aliases: os=esp, build=compilar, flash=gravar, zero=fabrica, publish=empacotar, list=ls
 Porta: argumento COMx, senao RIBANENSE_PORT, senao CH340 detectada.
-Conta deste repo: version.json (githubOwner/gitEmail). A CLI troca o gh so aqui.
+Conta deste repo: version.json (githubOwner, gitName, gitEmail). A CLI troca o gh so aqui.
 "@ | Write-Host
 }
 

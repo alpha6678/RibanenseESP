@@ -62,8 +62,8 @@ commit da correção.
 - Mudanças pequenas e localizadas sempre que possível.
 - Versão do OS só em `firmware/ribanense-esp/version.json` (o header C é gerado).
 - Manter `IA/` e `secrets/` no `.gitignore`.
-- Identidade deste clone: `githubOwner`, `githubRepo` e `gitEmail` em
-  `firmware/ribanense-esp/version.json`. A CLI aplica no git local e no
+- Identidade deste clone: `githubOwner`, `githubRepo`, `gitName` e `gitEmail` em
+  `firmware/ribanense-esp/version.json`. `gitName` é o autor do commit; `githubOwner` é a conta. A CLI aplica no git local e no
   `gh` só deste repositório. Não alterar o git/`gh` global do PC.
 
 ## Comandos úteis

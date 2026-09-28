@@ -6,7 +6,8 @@ alwaysApply: true
 # Conta deste projeto
 
 A identidade é **só** `firmware/ribanense-esp/version.json`
-(`githubOwner`, `githubRepo`, `gitEmail`).
+(`githubOwner`, `githubRepo`, `gitName`, `gitEmail`).
+`gitName` assina o commit. `githubOwner` é a conta do push e do `gh`.
 
 - A CLI (`rbesp`) aplica essa identidade no git **local** e troca o `gh` só neste clone.
 - `git push` / `gh release` / publish usam o `githubOwner` do JSON, mesmo se o `gh` ativo do PC for outro.

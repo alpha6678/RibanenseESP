@@ -32,8 +32,8 @@ Ambiente (opcional):
 Porta USB: argumento `COMx`, senão `RIBANENSE_PORT`, senão a única CH340.
 Bluetooth (COM3–7) é ignorado.
 
-Conta deste clone: `githubOwner` e `gitEmail` em
-`firmware/ribanense-esp/version.json`. A CLI aplica no git local e no
+Conta deste clone: `githubOwner`, `gitName` e `gitEmail` em
+`firmware/ribanense-esp/version.json`. `gitName` assina o commit; `githubOwner` é a conta. A CLI aplica no git local e no
 `gh` só deste repositório.
 
 Visão geral: [`FERRAMENTAS_CLI.md`](FERRAMENTAS_CLI.md).
@@ -201,7 +201,11 @@ rbesp ota check 192.168.5.188
 rbesp ota conferir
 ```
 
-`keygen` recusa se `secrets/ribanense-ota.pem` já existir.
+`keygen` exige OpenSSL. Cria `secrets/ribanense-ota.pem` (não versionar),
+`secrets/ribanense-ota.pub.pem` e reescreve `ribanense_ota_pubkey.h`.
+Recusa se o PEM já existir — não apague o par que as placas deste
+repositório já conhecem. Num clone, `secrets/` vem vazio: rode `keygen`
+antes do primeiro `flash --primeiro`.
 
 `verify` confere a assinatura do `firmware.json` **local**. `ota check` faz o
 que a placa faz: baixa o manifesto publicado, confere a assinatura, baixa o

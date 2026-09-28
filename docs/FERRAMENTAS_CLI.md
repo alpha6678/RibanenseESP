@@ -97,6 +97,13 @@ publicou um "0.3.6" com `0.3.5` dentro.
 OTA: o manifesto `firmware.json` leva `url`, `sha256` e `sig` (ECDSA P-256
 sobre `produto|versao|sha256`). A chave privada fica em
 `secrets/ribanense-ota.pem` ou em `RIBANENSE_SIGNING_KEY`. Não entra no git.
+A placa confere com a pública de `ribanense_ota_pubkey.h`.
+
+`rbesp keygen` (precisa de OpenSSL) gera o par e reescreve esse header.
+Recusa se `secrets/ribanense-ota.pem` já existir: quem já publica neste
+repositório guarda o PEM atual, par da pública que as placas dele já têm.
+Num clone novo a pasta `secrets/` vem vazia; rode `keygen` antes do
+`flash --primeiro` e versione só o header. Detalhe no [README](../README.md).
 
 ## Build IDF
 
@@ -107,7 +114,8 @@ para `C:\fw` (ou `RIBANENSE_IDF_MIRROR`) e chama `build_idf.bat`
 ## Conta GitHub
 
 Dono deste clone: [`firmware/ribanense-esp/version.json`](../firmware/ribanense-esp/version.json)
-(`githubOwner`, `githubRepo`, `gitEmail`). Quem faz a própria variação troca
+(`githubOwner`, `githubRepo`, `gitName`, `gitEmail`). `gitName` é o nome no
+commit. `githubOwner` é a conta. Quem faz a própria variação troca
 esses campos, gera outra chave com `rbesp keygen` e grava a primeira imagem
 por USB.
 
