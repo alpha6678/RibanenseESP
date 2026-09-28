@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# Helper de credencial Git deste repo: sempre alpha6678 (version.json),
+# Helper de credencial Git deste clone: githubOwner de version.json,
 # independente da conta gh ativa no PC.
 param(
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -19,10 +19,13 @@ try {
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $infoPath = Join-Path $projectRoot 'firmware\ribanense-esp\version.json'
-$owner = 'alpha6678'
+$owner = $null
 if (Test-Path -LiteralPath $infoPath) {
     $info = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($info.githubOwner) { $owner = [string] $info.githubOwner }
+}
+if ([string]::IsNullOrWhiteSpace($owner)) {
+    exit 1
 }
 
 $token = & gh auth token --user $owner 2>$null

@@ -437,11 +437,16 @@ function Get-GithubOwnerRepo {
 
 function Get-ProjectIdentity {
     param([Parameter(Mandatory)] [string] $ProjectRoot)
-    $info = $null
-    try { $info = Get-OsVersionInfo -ProjectRoot $ProjectRoot } catch { $info = $null }
-    $owner = if ($info -and $info.githubOwner) { [string] $info.githubOwner } else { 'alpha6678' }
-    $repo = if ($info -and $info.githubRepo) { [string] $info.githubRepo } else { 'RibanenseESP' }
-    $email = if ($info -and $info.gitEmail) { [string] $info.gitEmail } else { 'dionerdfrg3@gmail.com' }
+    $info = Get-OsVersionInfo -ProjectRoot $ProjectRoot
+    foreach ($field in @('githubOwner', 'githubRepo', 'gitEmail')) {
+        $value = [string] $info.$field
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            throw "version.json sem ${field}. Preencha firmware/ribanense-esp/version.json."
+        }
+    }
+    $owner = [string] $info.githubOwner
+    $repo = [string] $info.githubRepo
+    $email = [string] $info.gitEmail
     return [pscustomobject]@{
         Owner   = $owner
         Repo    = $repo

@@ -27,7 +27,7 @@ Uso:  rbesp <comando> [args]
 Comandos:
   help                         Esta ajuda
   doctor                       Confere IDF, porta USB, identidade, chave e URLs
-  whoami                       Conta Git/GitHub deste projeto (alpha6678)
+  whoami                       Conta Git/GitHub lida de version.json
   version                      Mostra versoes do OS e dos apps
   list                         Lista OS e apps da placa
   ports                        Lista portas seriais (marca a CH340)
@@ -489,11 +489,11 @@ function Invoke-Doctor {
     }
     $info = Get-OsVersionInfo -ProjectRoot $ProjectRoot
     Write-Host "[..] version.json $($info.version) $($info.githubOwner)/$($info.githubRepo)" -ForegroundColor Cyan
+    $expect = "$($info.githubOwner)/$($info.githubRepo)"
     $fw = Get-Content -LiteralPath (Join-Path $ProjectRoot 'firmware\ribanense-esp\firmware.json') -Raw
-    $bad = $fw -match 'BananaSuisa|desenvolvimentoLocatelli'
-    Note (-not $bad) "firmware.json aponta para $($info.githubOwner)/$($info.githubRepo)"
+    Note ($fw.Contains($expect)) "firmware.json aponta para $expect"
     $cat = Get-Content -LiteralPath (Join-Path $ProjectRoot 'catalog\esp-catalog.json') -Raw
-    Note ($cat -notmatch 'BananaSuisa|desenvolvimentoLocatelli') "esp-catalog.json sem owner antigo"
+    Note ($cat.Contains($expect)) "esp-catalog.json aponta para $expect"
     $taxOk = $true
     try {
         Test-AppTaxonomy -ProjectRoot $ProjectRoot
