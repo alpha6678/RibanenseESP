@@ -1,6 +1,7 @@
 #Requires -Version 5.1
-# Helper de credencial Git deste clone: githubOwner de version.json,
-# independente da conta gh ativa no PC.
+# Helper de credencial Git deste clone.
+# Usa o token da conta githubOwner se ela estiver logada.
+# Senao, usa a conta gh ativa (colaborador com acesso de escrita).
 param(
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]] $Rest
@@ -28,10 +29,15 @@ if ([string]::IsNullOrWhiteSpace($owner)) {
     exit 1
 }
 
+$user = $owner
 $token = & gh auth token --user $owner 2>$null
 if (-not $token) {
+    $token = & gh auth token 2>$null
+    $user = (& gh api user --jq .login 2>$null)
+}
+if (-not $token -or [string]::IsNullOrWhiteSpace($user)) {
     exit 1
 }
-Write-Output "username=$owner"
+Write-Output "username=$user"
 Write-Output "password=$token"
 exit 0

@@ -532,6 +532,15 @@ function Invoke-WithProjectGithub {
         throw "GitHub CLI (gh) nao encontrado."
     }
     $prev = Get-GhActiveUser
+    $ownerToken = & gh auth token --user $id.Owner 2>$null
+    if (-not $ownerToken) {
+        if (-not $prev) {
+            throw "gh precisa de uma conta com acesso de escrita em $($id.Owner)/$($id.Repo). Entre com: gh auth login"
+        }
+        Write-Host "gh -> $prev (colaborador; $($id.Owner) nao esta nesta maquina)" -ForegroundColor Cyan
+        & $Script
+        return
+    }
     $switched = $false
     if ($prev -ne $id.Owner) {
         & gh auth switch --user $id.Owner

@@ -120,10 +120,11 @@ esses campos, gera outra chave com `rbesp keygen` e grava a primeira imagem
 por USB.
 
 Cada `rbesp` aplica essa identidade no git **local** (nome, e-mail, helper
-de credencial). `publish`/`release` chamam `gh` como o `githubOwner` e
-devolvem a conta ativa do PC. O `git push` deste clone não depende do `gh`
-ativo — o helper `ferramentas/git-credential-ribanense.cmd` pede o token
-dessa conta.
+de credencial). `publish`/`release` chamam `gh` como o `githubOwner` quando
+essa conta está logada na máquina, e devolvem a conta ativa do PC. Se o
+`githubOwner` não estiver logado, usam a conta `gh` que tiver acesso de
+escrita (colaborador). O `git push` pede o token por
+`ferramentas/git-credential-ribanense.cmd`.
 
 ```bat
 rbesp whoami

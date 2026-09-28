@@ -455,15 +455,17 @@ function Invoke-Doctor {
     $gh = [bool] (Get-Command gh -ErrorAction SilentlyContinue)
     Note $gh "GitHub CLI (gh)"
     if ($gh) {
-        $hasOwner = $false
         $token = & gh auth token --user $id.Owner 2>$null
-        if ($token) { $hasOwner = $true }
-        Note $hasOwner "Conta gh $($id.Owner) logada (publish/release usam ela)"
         $login = Get-GhActiveUser
-        if ($login -and $login -ne $id.Owner) {
-            Write-Host "[..] gh ativo do PC: $login. Neste repo a CLI usa $($id.Owner)." -ForegroundColor Cyan
-        } elseif ($login) {
-            Write-Host "[OK] gh ativo: $login" -ForegroundColor Green
+        if ($token) {
+            Note $true "Conta gh $($id.Owner) logada (publish/release usam ela)"
+            if ($login -and $login -ne $id.Owner) {
+                Write-Host "[..] gh ativo do PC: $login. Neste repo a CLI usa $($id.Owner)." -ForegroundColor Cyan
+            } elseif ($login) {
+                Write-Host "[OK] gh ativo: $login" -ForegroundColor Green
+            }
+        } else {
+            Note ([bool] $login) "gh $(if ($login) { $login } else { 'nao logado' }) (publica como colaborador; $($id.Owner) nao esta nesta maquina)"
         }
     }
     $gitName = (& git -C $ProjectRoot config --local --get user.name)

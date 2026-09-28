@@ -30,6 +30,18 @@ A placa só aceita um OTA cuja assinatura feche com a chave pública gravada nel
 
 Quem já publica neste repositório guarda esse PEM. É ele que assina os releases que as placas já gravadas aceitam. `rbesp keygen` recusa se o arquivo existir: não apague para gerar outro, senão o OTA dessas placas passa a falhar em `assinatura` até um flash por USB.
 
+## Publicar junto
+
+Quem recebe acesso de escrita neste repositório, e não um fork:
+
+1. Aceite o convite do GitHub e entre com essa conta: `gh auth login`.
+2. Clone `https://github.com/alpha6678/RibanenseESP`.
+3. Extraia o zip da chave na pasta `secrets` da raiz do clone, de modo que existam `secrets/ribanense-ota.pem` e `secrets/ribanense-ota.pub.pem`.
+4. Não rode `rbesp keygen` e não commite `secrets/`.
+5. `rbesp doctor`.
+
+Se a conta `githubOwner` estiver logada nesta máquina, o `rbesp` publica com ela. Se não estiver, publica com a conta do `gh` que aceitou o convite. Os commits seguem o `gitName` de `version.json`.
+
 ## Sua variação
 
 O clone não traz a privada. A pública que vem no git é a deste repositório. Gere o seu par antes da primeira gravação:
