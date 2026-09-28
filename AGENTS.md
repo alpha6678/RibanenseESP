@@ -61,11 +61,10 @@ commit da correção.
 - Responder em pt-BR.
 - Mudanças pequenas e localizadas sempre que possível.
 - Versão do OS só em `firmware/ribanense-esp/version.json` (o header C é gerado).
-- Manter `IA/` e `secrets/` no `.gitignore`. `IA/` é insumo seu; a memória do agente é o acervo central via `iab` (`C:\CliDeIaGlobal`, repo privado `alpha6678/ia-global`).
-- Identidade deste repo: `alpha6678` / `dionerdfrg3@gmail.com` em
+- Manter `IA/` e `secrets/` no `.gitignore`.
+- Identidade deste clone: `githubOwner`, `githubRepo` e `gitEmail` em
   `firmware/ribanense-esp/version.json`. A CLI aplica no git local e no
-  `gh` só deste projeto. Não usar `desenvolvimentoLocatelli` aqui nem
-  alterar o git/`gh` global do PC.
+  `gh` só deste repositório. Não alterar o git/`gh` global do PC.
 
 ## Comandos úteis
 
@@ -84,7 +83,7 @@ commit da correção.
 ```
 
 `rbesp whoami` mostra a conta travada deste repo. `publish`/`release`
-já usam `alpha6678` sem trocar o `gh` padrão do PC.
+já usam o `githubOwner` de `version.json` sem trocar o `gh` padrão do PC.
 
 ## Quando usar subagentes
 

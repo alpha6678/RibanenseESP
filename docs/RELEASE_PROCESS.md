@@ -1,7 +1,7 @@
 # Processo de release
 
 Como publicar o **OS** RibanenseESP ou um **app da placa** no GitHub
-(`alpha6678/RibanenseESP`).
+indicado em `firmware/ribanense-esp/version.json` (`githubOwner` / `githubRepo`).
 
 ## Convenções
 
@@ -30,7 +30,7 @@ flowchart TB
   G --> H[Placa puxa OTA]
 ```
 
-1. `rbesp doctor` — IDF, conta `alpha6678` logada no `gh`, chave em `secrets/`
+1. `rbesp doctor` — IDF, conta `githubOwner` logada no `gh`, chave em `secrets/`
    e pubkey do firmware casando com a de `secrets/`.
    A CLI já usa essa conta neste repo; não precisa `gh auth switch`.
 2. Bump ou `rbesp publish all --dry-run` para ver o plano.
@@ -80,8 +80,8 @@ O bootloader tem `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`. A imagem só é
 marcada válida ~30 s após a UI subir. Se o update travar no boot, a
 próxima reinicialização volta ao slot anterior.
 
-A placa que ainda aponta para o repositório antigo (`BananaSuisa`) **não**
-enxerga releases novos. A primeira gravação desta linha é por USB
+Uma placa cuja imagem ainda aponta para outro repositório não enxerga
+estes releases. A primeira gravação desta linha é por USB
 (`rbesp flash --primeiro`).
 
 ## Rate limits

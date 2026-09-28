@@ -32,9 +32,9 @@ Ambiente (opcional):
 Porta USB: argumento `COMx`, senão `RIBANENSE_PORT`, senão a única CH340.
 Bluetooth (COM3–7) é ignorado.
 
-Conta deste repo: `alpha6678` / `dionerdfrg3@gmail.com`
-(`firmware/ribanense-esp/version.json`). A CLI aplica no git local e no
-`gh` só deste projeto.
+Conta deste clone: `githubOwner` e `gitEmail` em
+`firmware/ribanense-esp/version.json`. A CLI aplica no git local e no
+`gh` só deste repositório.
 
 Visão geral: [`FERRAMENTAS_CLI.md`](FERRAMENTAS_CLI.md).
 

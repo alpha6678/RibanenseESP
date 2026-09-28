@@ -55,11 +55,11 @@ erro. Escreva `0xABCD5432L`.
 
 ## Caminho do usuário tem acento
 
-`C:\Users\Usuário\...` quebra em dois lugares diferentes:
+Um caminho como `C:\Users\José\...` quebra em dois lugares diferentes:
 
 - O kconfiglib do IDF não aceita não-ASCII no caminho do projeto — por isso a
   CLI espelha tudo para `C:\fw` antes de compilar.
-- Alguns cmdlets recebem o caminho curto 8.3 (`C:\Users\USURIO~1`) e falham.
+- Alguns cmdlets recebem o caminho curto 8.3 (`C:\Users\JOSE~1`) e falham.
   Já aconteceu com `Remove-Item` sobre `$env:TEMP`. Em scripts da CLI, use
   pasta de saída sem acento (ex.: sob `C:\fw`).
 

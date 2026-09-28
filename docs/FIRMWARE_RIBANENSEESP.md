@@ -286,7 +286,7 @@ em `C:\fw` (ou `RIBANENSE_IDF_MIRROR`).
 
 **Atenção (Windows com acento no nome de usuário):** o kconfiglib do IDF
 quebra com caracteres não-ASCII no caminho do projeto. Se o seu caminho
-contém acento (ex.: `C:\Users\Usuário\...`), compile por uma cópia sem
+contém acento (ex.: `C:\Users\José\...`), compile por uma cópia sem
 acento. No laboratório usamos `C:\fw\ribanense-esp`.
 
 ```bat

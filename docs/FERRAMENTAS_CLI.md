@@ -1,6 +1,6 @@
 # Ferramentas de linha de comandos
 
-CLI deste repositório (firmware RibanenseESP). Não há solution .NET aqui.
+CLI deste repositório (firmware RibanenseESP).
 
 ## Entrada
 
@@ -21,7 +21,7 @@ CLI deste repositório (firmware RibanenseESP). Não há solution .NET aqui.
 | Comando | Sinônimos | Ação |
 |---------|-----------|------|
 | `help` | `?`, `-h` | Ajuda. |
-| `doctor` | — | Confere IDF, CH340, identidade `alpha6678`, openssl, chave e URLs. |
+| `doctor` | — | Confere IDF, CH340, identidade de `version.json`, openssl, chave e URLs. |
 | `whoami` | `auth`, `user` | Mostra e aplica a conta Git/GitHub deste projeto. |
 | `version` | `versao` | Versão do OS (`version.json`) e dos apps. |
 | `list` | `ls`, `apps` | Lista OS e apps em `firmware/apps`. |
@@ -80,7 +80,7 @@ Sem flag, só atualiza bootloader + partições + app e **mantém** o NVS
 
 Depois do boot: `app_main` inicia NVS, OTA, placa, microSD, Wi-Fi e UI.
 O slot só é marcado válido após ~30 s (`ota_health_tick`). OTA por GitHub
-só depois desta imagem USB (URLs `alpha6678/RibanenseESP` + pubkey).
+só depois desta imagem USB (URLs de `githubOwner`/`githubRepo` + pubkey).
 
 ## Versão e assinatura
 
@@ -106,14 +106,16 @@ para `C:\fw` (ou `RIBANENSE_IDF_MIRROR`) e chama `build_idf.bat`
 
 ## Conta GitHub
 
-Dono fixo em [`firmware/ribanense-esp/version.json`](../firmware/ribanense-esp/version.json):
-`githubOwner` + `gitEmail` (`alpha6678` / `dionerdfrg3@gmail.com`).
+Dono deste clone: [`firmware/ribanense-esp/version.json`](../firmware/ribanense-esp/version.json)
+(`githubOwner`, `githubRepo`, `gitEmail`). Quem faz a própria variação troca
+esses campos, gera outra chave com `rbesp keygen` e grava a primeira imagem
+por USB.
 
 Cada `rbesp` aplica essa identidade no git **local** (nome, e-mail, helper
-de credencial). `publish`/`release` chamam `gh` como `alpha6678` e
-devolvem a conta ativa do PC. O `git push` deste repo não depende do `gh`
+de credencial). `publish`/`release` chamam `gh` como o `githubOwner` e
+devolvem a conta ativa do PC. O `git push` deste clone não depende do `gh`
 ativo — o helper `ferramentas/git-credential-ribanense.cmd` pede o token
-de `alpha6678`.
+dessa conta.
 
 ```bat
 rbesp whoami
