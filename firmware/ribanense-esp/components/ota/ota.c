@@ -77,6 +77,8 @@ static uint32_t s_blk_min;
 /* Ligado na primeira leitura do manifesto desde o boot, venha ela do probe,
  * do ensaio ou do pull. E a prova de que esta imagem ainda se atualiza. */
 static volatile bool s_manifest_ok;
+/* 1 = o pull so anuncia a versao nova; 0 = baixa e grava. */
+static uint8_t s_pull_kind;
 /* Versao escolhida em Configuracoes / GET /restaurar?v= — a tarefa de
  * recuperacao le daqui, nao de um ponteiro da UI que pode sumir. */
 static char s_recover_pick[OTA_RECOVER_VER_MAX];
@@ -860,7 +862,7 @@ typedef struct {
  * pull (so aceita versao maior) do ensaio (aceita a propria versao, porque
  * o objetivo e exercitar o TLS, nao trocar de imagem).
  * Em caso de falha ja deixa a mensagem de estado pronta. */
-static bool fetch_target(ota_target_t *out, bool require_newer)
+static bool fetch_target(ota_target_t *out, bool require_newer, bool offer_only)
 {
     char *json = malloc(2048);
     if (json == NULL) {
@@ -909,6 +911,19 @@ static bool fetch_target(ota_target_t *out, bool require_newer)
         set_state(OTA_ERR, "sem binario");
     } else if (!sig_ok(pv, vv, sv, sg)) {
         set_state(OTA_ERR, "assinatura");
+    } else if (offer_only) {
+        const cJSON *log = cJSON_GetObjectItem(root, "changelog");
+        const cJSON *sec = cJSON_GetObjectItem(root, "securityUpdate");
+        const char *cv = cJSON_IsString(log) ? log->valuestring : "";
+        char m[MSG_MAX];
+        if (cJSON_IsTrue(sec)) {
+            snprintf(m, sizeof(m), "seguranca %s", vv[0] ? vv : "?");
+        } else if (cv[0] != 0) {
+            snprintf(m, sizeof(m), "nova %s", cv);
+        } else {
+            snprintf(m, sizeof(m), "nova %s", vv[0] ? vv : "?");
+        }
+        set_state(OTA_OFFER, m);
     } else {
         memset(out, 0, sizeof(*out));
         strncpy(out->url, uv, sizeof(out->url) - 1);
@@ -926,7 +941,9 @@ static void pull_task(void *arg)
     blk_track("inicio do pull");
 
     ota_target_t tgt;
-    if (!fetch_target(&tgt, true)) {
+    bool offer = s_pull_kind == 1;
+    s_pull_kind = 0;
+    if (!fetch_target(&tgt, true, offer)) {
         s_pull_busy = false;
         vTaskDelete(NULL);
         return;
@@ -958,7 +975,7 @@ static void rehearse_task(void *arg)
     blk_track("inicio do ensaio");
 
     ota_target_t tgt;
-    if (!fetch_target(&tgt, false)) {
+    if (!fetch_target(&tgt, false, false)) {
         s_pull_busy = false;
         vTaskDelete(NULL);
         return;
@@ -1932,7 +1949,7 @@ esp_err_t ota_start_httpd(void)
     return ESP_OK;
 }
 
-void ota_pull_start(void)
+static void pull_spawn(uint8_t kind)
 {
     if (s_pull_busy) {
         if (s_msg[0] == 0) {
@@ -1940,12 +1957,24 @@ void ota_pull_start(void)
         }
         return;
     }
+    s_pull_kind = kind;
     s_pull_busy = true;
     set_state(OTA_CHECKING, "buscando...");
     if (xTaskCreate(pull_task, "ota_pull", OTA_TASK_STACK, NULL, 4, NULL) != pdPASS) {
         s_pull_busy = false;
+        s_pull_kind = 0;
         set_state(OTA_ERR, "sem tarefa");
     }
+}
+
+void ota_offer_start(void)
+{
+    pull_spawn(1);
+}
+
+void ota_pull_start(void)
+{
+    pull_spawn(0);
 }
 
 ota_state_t ota_state(void)

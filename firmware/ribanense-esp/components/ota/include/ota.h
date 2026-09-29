@@ -10,6 +10,9 @@ typedef enum {
     OTA_DOWNLOADING,
     OTA_OK_REBOOT,
     OTA_ERR,
+    /* Manifesto mais novo, ainda sem gravar. A mensagem traz o changelog
+     * curto. Outro toque em Atualizar chama ota_pull_start. */
+    OTA_OFFER,
 } ota_state_t;
 
 /* Anel de recuperacao no microSD: uma pasta por versao confirmada.
@@ -26,6 +29,8 @@ esp_err_t ota_init(void);
 void ota_health_tick(void);
 esp_err_t ota_start_httpd(void);
 void ota_pull_start(void);
+/* So le o manifesto. Se houver versao nova, fica em OTA_OFFER. */
+void ota_offer_start(void);
 esp_err_t ota_apply_file(const char *abs_path);
 /* Lista as versoes do anel, mais novas primeiro. Devolve a quantidade. */
 int ota_recover_list(char vers[][OTA_RECOVER_VER_MAX], int max);
