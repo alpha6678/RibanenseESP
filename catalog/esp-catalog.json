@@ -5,15 +5,17 @@
       "id": "com.ribanense.esp.palavras",
       "name": "Palavras",
       "publicName": "Palavras",
-      "author": "RibanenseESP",
-      "description": "Lista de palavras em portugues para ler na tela.",
-      "changelog": "0.1.0 primeira lista",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "minimumOsVersion": "0.6.0",
-      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-palavras-0.1.0.zip",
-      "sha256": "a44be0182e3fa946994794f743bd5e8c771fa54c40d50594ec14c3dc5c1f8375",
+      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-palavras-0.1.1.zip",
+      "sha256": "cbb239c005e3e14108fd4e7f33907b1bfb77f1fcaa929324e9a22e5606cc30b7",
       "category": "ferramentas",
-      "subcategory": "texto"
+      "subcategory": "texto",
+      "description": "Lista de palavras em portugues para ler na tela.",
+      "author": "RibanenseESP",
+      "changelog": "0.1.0 primeira lista",
+      "githubOwner": "alpha6678",
+      "githubRepo": "RibanenseESP"
     }
   ]
 }
