@@ -52,6 +52,8 @@ typedef struct {
     uint8_t cat;
     uint8_t sub;
     bool installed;
+    /* 0 ausente, 1 ja esta versao, 2 o catalogo tem versao maior. */
+    uint8_t rel;
 } store_remote_t;
 
 int store_scan_installed_tax(store_app_t *out, uint8_t *cats, uint8_t *subs, int max);
@@ -66,5 +68,13 @@ int store_catalog_count(void);
 const store_remote_t *store_catalog_at(int idx);
 void store_catalog_start(void);
 void store_install_start(const char *id);
+void store_remove_start(const char *id);
+/* Primeiro zip em /sdcard/inbox. Nao precisa de rede. */
+bool store_inbox_ready(void);
+void store_inbox_start(void);
+/* author, description e changelog de uma entrada do catalogo em cache.
+ * Ponteiros nulos sao ignorados. false se o id nao estiver no arquivo. */
+bool store_catalog_blurb(const char *id, char *author, size_t ac, char *desc, size_t dc,
+                         char *log, size_t lc);
 store_state_t store_state(void);
 const char *store_message(void);

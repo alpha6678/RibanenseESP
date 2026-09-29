@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -34,6 +35,8 @@ static int s_cat_n;
 static char s_install_id[STORE_ID_MAX];
 static uint8_t s_chunk[CHUNK];
 static volatile bool s_busy;
+/* 0 instala do catalogo, 1 remove, 2 zip da inbox. */
+static uint8_t s_job;
 
 static void set_msg(store_state_t st, const char *m)
 {
@@ -635,10 +638,41 @@ static esp_err_t unzip_stored(const char *zip_abs, const char *dest_dir)
     return ESP_OK;
 }
 
+static int parse3(const char *s, int *x, int *y, int *z)
+{
+    *x = *y = *z = 0;
+    if (s == NULL || *s == 0) {
+        return -1;
+    }
+    return sscanf(s, "%d.%d.%d", x, y, z) >= 1 ? 0 : -1;
+}
+
+static int semver_cmp(const char *a, const char *b)
+{
+    int a0, a1, a2, b0, b1, b2;
+    if (parse3(a, &a0, &a1, &a2) != 0 || parse3(b, &b0, &b1, &b2) != 0) {
+        return strcmp(a ? a : "", b ? b : "");
+    }
+    if (a0 != b0) {
+        return a0 - b0;
+    }
+    if (a1 != b1) {
+        return a1 - b1;
+    }
+    return a2 - b2;
+}
+
 static void refresh_installed_flags(void)
 {
     for (int i = 0; i < s_cat_n; i++) {
-        s_cat[i].installed = store_find_installed(s_cat[i].id, NULL);
+        store_app_t got;
+        if (!store_find_installed(s_cat[i].id, &got)) {
+            s_cat[i].installed = false;
+            s_cat[i].rel = 0;
+            continue;
+        }
+        s_cat[i].installed = true;
+        s_cat[i].rel = semver_cmp(s_cat[i].version, got.version) > 0 ? 2 : 1;
     }
 }
 
@@ -795,9 +829,263 @@ static void catalog_task(void *arg)
     vTaskDelete(NULL);
 }
 
+static bool id_ok(const char *id)
+{
+    if (id == NULL || id[0] == 0 || strlen(id) >= STORE_ID_MAX) {
+        return false;
+    }
+    for (const char *p = id; *p != 0; p++) {
+        char c = *p;
+        bool alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        if (!alnum && c != '.' && c != '_' && c != '-') {
+            return false;
+        }
+    }
+    return strstr(id, "..") == NULL;
+}
+
+static bool path_under(const char *abs, const char *rel_root)
+{
+    char root[80];
+    int n = snprintf(root, sizeof(root), "%s/%s/", STORAGE_MOUNT, rel_root);
+    if (n <= 0 || (size_t)n >= sizeof(root) || abs == NULL) {
+        return false;
+    }
+    return strncmp(abs, root, (size_t)n) == 0 && strstr(abs, "..") == NULL;
+}
+
+static esp_err_t rm_tree(const char *abs, int depth)
+{
+    if (abs == NULL || depth > 8 || strstr(abs, "..") != NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    struct stat st;
+    if (stat(abs, &st) != 0) {
+        return ESP_OK;
+    }
+    if (!S_ISDIR(st.st_mode)) {
+        return unlink(abs) == 0 ? ESP_OK : ESP_FAIL;
+    }
+    DIR *d = opendir(abs);
+    if (d == NULL) {
+        return ESP_FAIL;
+    }
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
+            continue;
+        }
+        char child[192];
+        int n = snprintf(child, sizeof(child), "%s/%s", abs, ent->d_name);
+        if (n <= 0 || (size_t)n >= sizeof(child)) {
+            closedir(d);
+            return ESP_ERR_INVALID_SIZE;
+        }
+        if (rm_tree(child, depth + 1) != ESP_OK) {
+            closedir(d);
+            return ESP_FAIL;
+        }
+    }
+    closedir(d);
+    return rmdir(abs) == 0 ? ESP_OK : ESP_FAIL;
+}
+
+static bool stage_abs(char *out, size_t max)
+{
+    return snprintf(out, max, "%s/%s/stage", STORAGE_MOUNT, STORAGE_TMP_DIR) > 0;
+}
+
+/* Extrai para tmp/stage e so entao troca a pasta do app. Um unzip pela
+ * metade nao deixa o app anterior quebrado. */
+static esp_err_t commit_stage(const char *id);
+
+static esp_err_t install_staged(const char *zip_abs, const char *id)
+{
+    if (!id_ok(id)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char stage[160];
+    if (!stage_abs(stage, sizeof(stage))) {
+        return ESP_FAIL;
+    }
+    if (!path_under(stage, STORAGE_TMP_DIR)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    (void)rm_tree(stage, 0);
+    if (storage_mkdir(STORAGE_TMP_DIR "/stage") != ESP_OK) {
+        return ESP_FAIL;
+    }
+    if (unzip_stored(zip_abs, stage) != ESP_OK) {
+        (void)rm_tree(stage, 0);
+        return ESP_FAIL;
+    }
+    return commit_stage(id);
+}
+
+/* A pasta antiga vira .bak e so some depois que a nova entra no lugar. */
+static esp_err_t commit_stage(const char *id)
+{
+    char stage[160];
+    char dest[180];
+    char bak[188];
+    if (!id_ok(id) || !stage_abs(stage, sizeof(stage))) {
+        return ESP_FAIL;
+    }
+    int nd = snprintf(dest, sizeof(dest), "%s/%s/%s", STORAGE_MOUNT, STORAGE_APPS_DIR, id);
+    int nb = snprintf(bak, sizeof(bak), "%s.bak", dest);
+    if (nd <= 0 || nb <= 0 || (size_t)nd >= sizeof(dest) || (size_t)nb >= sizeof(bak) ||
+        !path_under(dest, STORAGE_APPS_DIR) || !path_under(bak, STORAGE_APPS_DIR)) {
+        (void)rm_tree(stage, 0);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    (void)storage_mkdir(STORAGE_APPS_DIR);
+    (void)rm_tree(bak, 0);
+    struct stat st;
+    bool had = stat(dest, &st) == 0;
+    if (had && rename(dest, bak) != 0) {
+        (void)rm_tree(stage, 0);
+        return ESP_FAIL;
+    }
+    if (rename(stage, dest) != 0) {
+        ESP_LOGW(TAG, "rename stage errno=%d", errno);
+        if (had) {
+            (void)rename(bak, dest);
+        }
+        (void)rm_tree(stage, 0);
+        return ESP_FAIL;
+    }
+    (void)rm_tree(bak, 0);
+    return ESP_OK;
+}
+
+static bool read_staged_id(char *id, size_t max)
+{
+    char stage[160];
+    char man[180];
+    if (!stage_abs(stage, sizeof(stage))) {
+        return false;
+    }
+    int n = snprintf(man, sizeof(man), "%s/app.json", stage);
+    if (n <= 0 || (size_t)n >= sizeof(man)) {
+        return false;
+    }
+    char json[512];
+    if (read_text(man, json, sizeof(json)) < 0) {
+        return false;
+    }
+    cJSON *root = cJSON_Parse(json);
+    if (root == NULL) {
+        return false;
+    }
+    const cJSON *jid = cJSON_GetObjectItem(root, "id");
+    bool ok = cJSON_IsString(jid) && id_ok(jid->valuestring);
+    if (ok) {
+        strncpy(id, jid->valuestring, max - 1);
+        id[max - 1] = 0;
+    }
+    cJSON_Delete(root);
+    return ok;
+}
+
 static void install_task(void *arg)
 {
     (void)arg;
+    if (s_job == 1) {
+        if (!id_ok(s_install_id) || !storage_ready()) {
+            set_msg(STORE_ERR, "sem pacote");
+            s_busy = false;
+            vTaskDelete(NULL);
+            return;
+        }
+        set_msg(STORE_BUSY, "removendo...");
+        store_app_t got;
+        if (!store_find_installed(s_install_id, &got) || !path_under(got.path, STORAGE_APPS_DIR)) {
+            set_msg(STORE_ERR, "ausente");
+            s_busy = false;
+            vTaskDelete(NULL);
+            return;
+        }
+        if (rm_tree(got.path, 0) != ESP_OK) {
+            set_msg(STORE_ERR, "remover");
+            s_busy = false;
+            vTaskDelete(NULL);
+            return;
+        }
+        refresh_installed_flags();
+        set_msg(STORE_IDLE, "removido");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    if (s_job == 2) {
+        if (!storage_ready()) {
+            set_msg(STORE_ERR, "sem SD");
+            s_busy = false;
+            vTaskDelete(NULL);
+            return;
+        }
+        char names[4][64];
+        int n = storage_list_files(STORAGE_INBOX_DIR, names, 4);
+        char zip_rel[96] = {0};
+        for (int i = 0; i < n; i++) {
+            size_t ln = strlen(names[i]);
+            if (ln >= 4 && strcasecmp(names[i] + ln - 4, ".zip") == 0) {
+                snprintf(zip_rel, sizeof(zip_rel), "%s/%s", STORAGE_INBOX_DIR, names[i]);
+                break;
+            }
+        }
+        if (zip_rel[0] == 0) {
+            set_msg(STORE_ERR, "sem zip");
+            s_busy = false;
+            vTaskDelete(NULL);
+            return;
+        }
+        char zip[180];
+        if (storage_abs(zip_rel, zip, sizeof(zip)) != ESP_OK) {
+            set_msg(STORE_ERR, "sem zip");
+            s_busy = false;
+            vTaskDelete(NULL);
+            return;
+        }
+        set_msg(STORE_BUSY, "instalando...");
+        char stage[160];
+        if (!stage_abs(stage, sizeof(stage))) {
+            set_msg(STORE_ERR, "pasta");
+            s_busy = false;
+            vTaskDelete(NULL);
+            return;
+        }
+        (void)rm_tree(stage, 0);
+        if (storage_mkdir(STORAGE_TMP_DIR "/stage") != ESP_OK || unzip_stored(zip, stage) != ESP_OK) {
+            (void)rm_tree(stage, 0);
+            set_msg(STORE_ERR, "zip");
+            s_busy = false;
+            vTaskDelete(NULL);
+            return;
+        }
+        char id[STORE_ID_MAX];
+        if (!read_staged_id(id, sizeof(id))) {
+            (void)rm_tree(stage, 0);
+            set_msg(STORE_ERR, "app.json");
+            s_busy = false;
+            vTaskDelete(NULL);
+            return;
+        }
+        if (commit_stage(id) != ESP_OK) {
+            set_msg(STORE_ERR, "pasta");
+            s_busy = false;
+            vTaskDelete(NULL);
+            return;
+        }
+        unlink(zip);
+        refresh_installed_flags();
+        set_msg(STORE_IDLE, "instalado");
+        s_busy = false;
+        vTaskDelete(NULL);
+        return;
+    }
+
     const store_remote_t *src = NULL;
     for (int i = 0; i < s_cat_n; i++) {
         if (strcmp(s_cat[i].id, s_install_id) == 0) {
@@ -846,19 +1134,7 @@ static void install_task(void *arg)
     }
 
     set_msg(STORE_BUSY, "instalando...");
-    char dest[160];
-    snprintf(dest, sizeof(dest), "%s/%s", STORAGE_APPS_DIR, src->id);
-    (void)storage_mkdir(STORAGE_APPS_DIR);
-    if (storage_mkdir(dest) != ESP_OK) {
-        unlink(zip);
-        set_msg(STORE_ERR, "pasta");
-        s_busy = false;
-        vTaskDelete(NULL);
-        return;
-    }
-    char dest_abs[180];
-    snprintf(dest_abs, sizeof(dest_abs), "%s/%s", STORAGE_MOUNT, dest);
-    if (unzip_stored(zip, dest_abs) != ESP_OK) {
+    if (install_staged(zip, src->id) != ESP_OK) {
         unlink(zip);
         set_msg(STORE_ERR, "zip");
         s_busy = false;
@@ -886,18 +1162,136 @@ void store_catalog_start(void)
     }
 }
 
-void store_install_start(const char *id)
+static void job_start(uint8_t job, const char *id)
 {
-    if (s_busy || id == NULL || id[0] == 0) {
+    if (s_busy) {
         return;
     }
-    strncpy(s_install_id, id, sizeof(s_install_id) - 1);
-    s_install_id[sizeof(s_install_id) - 1] = 0;
+    if (id != NULL) {
+        strncpy(s_install_id, id, sizeof(s_install_id) - 1);
+        s_install_id[sizeof(s_install_id) - 1] = 0;
+    } else {
+        s_install_id[0] = 0;
+    }
+    s_job = job;
     s_busy = true;
     if (xTaskCreate(install_task, "store_ins", STORE_TASK_STACK, NULL, 4, NULL) != pdPASS) {
         s_busy = false;
         set_msg(STORE_ERR, "sem tarefa");
     }
+}
+
+void store_install_start(const char *id)
+{
+    if (id == NULL || id[0] == 0) {
+        return;
+    }
+    job_start(0, id);
+}
+
+void store_remove_start(const char *id)
+{
+    if (id == NULL || id[0] == 0) {
+        return;
+    }
+    job_start(1, id);
+}
+
+bool store_inbox_ready(void)
+{
+    if (!storage_ready()) {
+        return false;
+    }
+    char names[4][64];
+    int n = storage_list_files(STORAGE_INBOX_DIR, names, 4);
+    for (int i = 0; i < n; i++) {
+        size_t ln = strlen(names[i]);
+        if (ln >= 4 && strcasecmp(names[i] + ln - 4, ".zip") == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void store_inbox_start(void)
+{
+    job_start(2, NULL);
+}
+
+static void copy_json_str(const cJSON *it, const char *key, char *dst, size_t n)
+{
+    if (dst == NULL || n == 0) {
+        return;
+    }
+    dst[0] = 0;
+    const cJSON *v = cJSON_GetObjectItem(it, key);
+    if (cJSON_IsString(v) && v->valuestring != NULL) {
+        strncpy(dst, v->valuestring, n - 1);
+        dst[n - 1] = 0;
+    }
+}
+
+bool store_catalog_blurb(const char *id, char *author, size_t ac, char *desc, size_t dc, char *log,
+                         size_t lc)
+{
+    if (author != NULL && ac > 0) {
+        author[0] = 0;
+    }
+    if (desc != NULL && dc > 0) {
+        desc[0] = 0;
+    }
+    if (log != NULL && lc > 0) {
+        log[0] = 0;
+    }
+    if (id == NULL || id[0] == 0 || !storage_ready()) {
+        return false;
+    }
+    const char *rels[] = {
+        STORAGE_CACHE_DIR "/catalog.json",
+        STORAGE_OS_DIR "/catalog.json",
+    };
+    char abs[160];
+    char *json = NULL;
+    for (int i = 0; i < 2 && json == NULL; i++) {
+        if (storage_abs(rels[i], abs, sizeof(abs)) != ESP_OK) {
+            continue;
+        }
+        struct stat st;
+        if (stat(abs, &st) != 0 || st.st_size <= 0 || st.st_size > CATALOG_FILE_MAX) {
+            continue;
+        }
+        json = malloc((size_t)st.st_size + 1);
+        if (json == NULL || read_text(abs, json, (int)st.st_size + 1) < 0) {
+            free(json);
+            json = NULL;
+        }
+    }
+    if (json == NULL) {
+        return false;
+    }
+    cJSON *root = cJSON_Parse(skip_bom(json));
+    free(json);
+    if (root == NULL) {
+        return false;
+    }
+    bool found = false;
+    const cJSON *apps = cJSON_GetObjectItem(root, "apps");
+    if (cJSON_IsArray(apps)) {
+        const cJSON *it;
+        cJSON_ArrayForEach(it, apps) {
+            const cJSON *jid = cJSON_GetObjectItem(it, "id");
+            if (!cJSON_IsString(jid) || strcmp(jid->valuestring, id) != 0) {
+                continue;
+            }
+            copy_json_str(it, "author", author, ac);
+            copy_json_str(it, "description", desc, dc);
+            copy_json_str(it, "changelog", log, lc);
+            found = true;
+            break;
+        }
+    }
+    cJSON_Delete(root);
+    return found;
 }
 
 store_state_t store_state(void)

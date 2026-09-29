@@ -52,6 +52,7 @@ static void ensure_layout(void)
         STORAGE_WIFI_DIR,
         STORAGE_TMP_DIR,
         STORAGE_CACHE_DIR,
+        STORAGE_INBOX_DIR,
     };
     for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
         if (storage_mkdir(dirs[i]) != ESP_OK) {

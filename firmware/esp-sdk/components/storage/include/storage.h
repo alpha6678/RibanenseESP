@@ -10,6 +10,8 @@
 #define STORAGE_WIFI_DIR "os/wifi"
 #define STORAGE_TMP_DIR "tmp"
 #define STORAGE_CACHE_DIR "cache"
+/* Zip solto para instalar sem rede. A loja pega o primeiro *.zip. */
+#define STORAGE_INBOX_DIR "inbox"
 
 /* Monta FAT32 no microSD (SPI2). false se o cartão não estiver presente.
  * Se o NVS tiver wipe_sd (gravado por `rbesp flash --zero`), formata o cartão
