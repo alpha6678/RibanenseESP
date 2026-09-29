@@ -39,13 +39,15 @@
       "publicName": "Leitor",
       "version": "0.1.0",
       "minimumOsVersion": "0.6.0",
-      "url": "",
-      "sha256": "",
+      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-leitor-0.1.0.zip",
+      "sha256": "fa6da27d61dbe4f382eb74eed815ddbe5658252eeb704d7374f5cb4c9509a1ac",
       "category": "ferramentas",
       "subcategory": "texto",
       "description": "Le um texto do cartao em paginas.",
       "author": "RibanenseESP",
-      "changelog": "0.1.0 leitor nativo"
+      "changelog": "0.1.0 leitor nativo",
+      "githubOwner": "alpha6678",
+      "githubRepo": "RibanenseESP"
     },
     {
       "id": "com.ribanense.esp.calculadora",
