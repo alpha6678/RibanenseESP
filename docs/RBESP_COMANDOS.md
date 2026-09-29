@@ -185,8 +185,10 @@ rbesp os release 0.3.6
 ```
 
 `publish os` / `publish <Slug>` só gera o pacote local em `artifacts/`.
-`publish all` detecta mudanças desde a última tag, pergunta (ou `-Yes`)
-e chama o release. `release` cria tag, GitHub Release e atualiza
+`publish all` publica o OS e os apps que já estão no catálogo e mudaram
+desde a última versão publicada. Pergunta (ou `-Yes`) e chama o release.
+App de exemplo fora de `esp-catalog.json` é pulado. Se um item falhar,
+os outros seguem. `release` cria tag, GitHub Release e atualiza
 `firmware.json` (OS, assinado) ou `esp-catalog.json` (app).
 
 ## Assinatura OTA
@@ -281,7 +283,7 @@ um OTA a splash segura a home até o ponto desta versão estar no cartão
 | `app publish` | `empacotar`, `pack`, `os app publish` | `rbesp app publish <Slug>` |
 | `app release` | `soltar`, `os app release` | `rbesp app release <Slug> <semver>` |
 | `bump` | — | `rbesp bump os\|<Slug> [patch\|minor\|major]` |
-| `publish` | `empacotar`, `pack`, `os publish` | `rbesp publish os\|<Slug>\|all [--dry-run\|--whatif] [-Yes\|--yes\|-y]` |
+| `publish` | `empacotar`, `pack`, `os publish` | `rbesp publish os\|<Slug>` ou `rbesp publish all [--dry-run\|--whatif] [-Yes\|--yes\|-y]` |
 | `release` | `soltar`, `os release` | `rbesp release os\|<Slug> <semver>` |
 | `keygen` | — | `rbesp keygen` |
 | `sign` | — | `rbesp sign` |

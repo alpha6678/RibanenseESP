@@ -54,8 +54,10 @@ continuava se dizendo 0.3.5 e baixava de novo, em laço.
 
 `publish all` detecta mudança de código desde a última tag (OS:
 `firmware/ribanense-esp/` + `firmware/esp-sdk/`, ignorando `firmware.json` e
-`dist/`; app: pasta do app + sdk). Faz bump patch, commit das versões e
-chama `release.ps1` por item. Não grava USB nem dispara OTA na LAN.
+`dist/`; app: pasta do app + sdk). Só entra no plano o app cujo `id` já
+está em `catalog/esp-catalog.json`. Faz bump patch, commit das versões e
+chama `release.ps1` por item. Se um item falhar, os demais seguem e o
+comando lista o que ficou de fora. Não grava USB nem dispara OTA na LAN.
 
 ## Assinatura OTA
 
