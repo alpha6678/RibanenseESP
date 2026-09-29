@@ -170,6 +170,11 @@ try {
                 $entry.version = $Version
                 $entry.url = $url
                 $entry.sha256 = $hash
+                foreach ($k in @('description', 'author', 'changelog')) {
+                    if ($m.PSObject.Properties.Name -contains $k -and [string] $m.$k) {
+                        $entry | Add-Member -NotePropertyName $k -NotePropertyValue ([string] $m.$k) -Force
+                    }
+                }
                 $entry | Add-Member -NotePropertyName githubOwner -NotePropertyValue $gh.Owner -Force
                 $entry | Add-Member -NotePropertyName githubRepo -NotePropertyValue $gh.Repo -Force
                 $hit = $true

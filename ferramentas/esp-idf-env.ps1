@@ -425,6 +425,11 @@ function Set-FirmwareManifestPointer {
         sha256        = $Sha256
         sig           = $sig
     }
+    $note = [string] $info.changelog
+    if ($note) { $doc.changelog = $note }
+    if ($info.PSObject.Properties.Name -contains 'securityUpdate' -and $info.securityUpdate) {
+        $doc.securityUpdate = $true
+    }
     ($doc | ConvertTo-Json -Depth 4) + "`n" | Set-Content -LiteralPath $fw -Encoding UTF8
     return $sig
 }
