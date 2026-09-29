@@ -56,6 +56,9 @@ Comandos:
                                10 pontos no microSD; a placa escolhe a versao
                                em Configuracoes > Restaurar do cartao
   logs [ip]                    GET /log da placa na LAN
+  tela [COM] [arquivo.bmp]     Captura a tela pela UART (feche o monitor antes)
+  toque [COM] X Y              Injeta um toque
+  arrasto [COM] X1 Y1 X2 Y2    Injeta um arrasto
   clean [espelho]              Remove artifacts/ (e o build do espelho C:\fw)
   install [user|session]       Shim rbesp/rb no PATH
 
@@ -793,6 +796,40 @@ function Invoke-OtaCheck {
     }
 }
 
+function Invoke-PlacaLink {
+    param(
+        [Parameter(Mandatory)][string] $Action,
+        [string[]] $Items
+    )
+    $port = $null
+    $rest = @()
+    foreach ($a in @($Items)) {
+        if (-not $port -and $a -match '^COM\d+$') { $port = $a; continue }
+        $rest += $a
+    }
+    $port = Resolve-RibanensePort $port
+    $py = Get-IdfPythonExe
+    $script = Join-Path $ScriptRoot 'placa-link.py'
+    if ($Action -eq 'tela') {
+        $out = Join-Path $ProjectRoot 'artifacts\tela.bmp'
+        if ($rest.Count -ge 1 -and $rest[0]) { $out = $rest[0] }
+        $dir = Split-Path -Parent $out
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        }
+        & $py $script $port tela $out
+    } elseif ($Action -eq 'toque') {
+        if ($rest.Count -lt 2) { throw "Uso: rbesp toque [COM] X Y" }
+        & $py $script $port toque $rest[0] $rest[1]
+    } elseif ($Action -eq 'arrasto') {
+        if ($rest.Count -lt 4) { throw "Uso: rbesp arrasto [COM] X1 Y1 X2 Y2" }
+        & $py $script $port arrasto $rest[0] $rest[1] $rest[2] $rest[3]
+    } else {
+        throw "Acao de placa desconhecida: $Action"
+    }
+    if ($LASTEXITCODE) { throw "Canal da placa falhou (codigo $LASTEXITCODE). Feche o monitor se a porta estiver ocupada." }
+}
+
 function Invoke-BoardLogs {
     param([string] $Ip)
     if (-not $Ip) {
@@ -981,6 +1018,9 @@ switch ($t0) {
         }
     }
     { $_ -in @('logs', 'log') } { Invoke-BoardLogs -Ip $rest[0] }
+    'tela' { Invoke-PlacaLink -Action 'tela' -Items $rest }
+    'toque' { Invoke-PlacaLink -Action 'toque' -Items $rest }
+    'arrasto' { Invoke-PlacaLink -Action 'arrasto' -Items $rest }
     { $_ -in @('clean', 'limpar') } {
         $wipe = @($rest | Where-Object { $_ -match '^-{0,2}(espelho|mirror)$' }).Count -gt 0
         Invoke-Clean -Mirror:$wipe
