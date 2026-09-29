@@ -63,6 +63,38 @@ const char *shell_os_slot_label(void)
     return s_label;
 }
 
+static esp_err_t nvs_put_back(void)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(SHELL_NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_set_u8(h, SHELL_NVS_BACK, 1);
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    return err;
+}
+
+bool shell_take_app_return(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(SHELL_NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        return false;
+    }
+    uint8_t v = 0;
+    esp_err_t err = nvs_get_u8(h, SHELL_NVS_BACK, &v);
+    if (err == ESP_OK) {
+        if (nvs_erase_key(h, SHELL_NVS_BACK) == ESP_OK) {
+            (void)nvs_commit(h);
+        }
+    }
+    nvs_close(h);
+    return err == ESP_OK && v == 1;
+}
+
 esp_err_t shell_boot_os(void)
 {
     char label[16] = {0};
@@ -78,6 +110,9 @@ esp_err_t shell_boot_os(void)
     esp_err_t err = esp_ota_set_boot_partition(part);
     if (err != ESP_OK) {
         return err;
+    }
+    if (nvs_put_back() != ESP_OK) {
+        ESP_LOGW(TAG, "sem flag de retorno; logo espera 3 s");
     }
     ESP_LOGI(TAG, "voltar -> %s", label);
     esp_restart();
