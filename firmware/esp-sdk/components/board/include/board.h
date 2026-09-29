@@ -19,5 +19,13 @@ void board_backlight_set(uint8_t percent);
 uint8_t board_backlight_get(void);
 void board_led_rgb(bool r, bool g, bool b);
 
-/* XPT2046: true se pressionou; x/y em pixels 240×320. */
+/* XPT2046: true se pressionou; x/y em pixels 240×320.
+ * Sem gravacao na NVS vale a calibração de fabrica desta placa. */
 bool board_touch_read(int16_t *x, int16_t *y);
+/* Uma leitura: bruto do conversor e pixel ja mapeado. */
+bool board_touch_sample(uint16_t *raw_x, uint16_t *raw_y, int16_t *x, int16_t *y);
+/* Dois cantos da tela (superior esquerdo, depois inferior direito), em bruto.
+ * Recusa se os pontos ficarem perto demais. Grava na NVS e passa a valer ja. */
+esp_err_t board_touch_cal_corners(uint16_t rx_tl, uint16_t ry_tl, uint16_t rx_br, uint16_t ry_br);
+/* Volta aos limites de fabrica e apaga a NVS. */
+void board_touch_cal_reset(void);

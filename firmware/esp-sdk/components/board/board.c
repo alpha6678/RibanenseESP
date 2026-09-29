@@ -12,6 +12,7 @@
 #include "esp_mac.h"
 #include "esp_rom_sys.h"
 #include "mbedtls/md.h"
+#include "nvs.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -94,6 +95,7 @@ static void bl_init(void)
 #define XPT_Y  0x90
 
 static void touch_init(void);
+static void touch_cal_load(void);
 
 static void pins_idle(void)
 {
@@ -232,6 +234,7 @@ esp_err_t board_init(void)
     pins_idle();
     esp_err_t err = lcd_init();
     if (err == ESP_OK) {
+        touch_cal_load();
         touch_init();
     }
     return err;
@@ -297,6 +300,15 @@ static uint16_t median3(uint16_t a, uint16_t b, uint16_t c)
     return b;
 }
 
+/* Fabrica desta E32R28T-1. A NVS so substitui depois de Calibrar toque. */
+static uint16_t s_x_min = BOARD_TOUCH_X_MIN;
+static uint16_t s_x_max = BOARD_TOUCH_X_MAX;
+static uint16_t s_y_min = BOARD_TOUCH_Y_MIN;
+static uint16_t s_y_max = BOARD_TOUCH_Y_MAX;
+
+#define TOUCH_NVS_NS "rbn_tch"
+#define TOUCH_NVS_KEY "xy"
+
 static int map_range(int v, int in_min, int in_max, int out_max)
 {
     if (v < in_min) {
@@ -321,7 +333,38 @@ static void touch_log(int irq, uint16_t z1, uint16_t z2, uint16_t z, uint16_t ra
              px, py);
 }
 
-bool board_touch_read(int16_t *x, int16_t *y)
+static void map_touch(uint16_t raw_x, uint16_t raw_y, int16_t *x, int16_t *y)
+{
+#if BOARD_TOUCH_SWAP_XY
+    int px = map_range((int)raw_y, (int)s_y_min, (int)s_y_max, BOARD_LCD_H - 1);
+    int py = map_range((int)raw_x, (int)s_x_min, (int)s_x_max, BOARD_LCD_V - 1);
+#else
+    int px = map_range((int)raw_x, (int)s_x_min, (int)s_x_max, BOARD_LCD_H - 1);
+    int py = map_range((int)raw_y, (int)s_y_min, (int)s_y_max, BOARD_LCD_V - 1);
+#endif
+#if BOARD_TOUCH_INV_X
+    px = (BOARD_LCD_H - 1) - px;
+#endif
+#if BOARD_TOUCH_INV_Y
+    py = (BOARD_LCD_V - 1) - py;
+#endif
+    if (px < 0) {
+        px = 0;
+    }
+    if (py < 0) {
+        py = 0;
+    }
+    if (px >= BOARD_LCD_H) {
+        px = BOARD_LCD_H - 1;
+    }
+    if (py >= BOARD_LCD_V) {
+        py = BOARD_LCD_V - 1;
+    }
+    *x = (int16_t)px;
+    *y = (int16_t)py;
+}
+
+bool board_touch_sample(uint16_t *raw_x, uint16_t *raw_y, int16_t *x, int16_t *y)
 {
     const int irq = gpio_get_level(BOARD_TOUCH_IRQ);
 
@@ -339,41 +382,128 @@ bool board_touch_read(int16_t *x, int16_t *y)
     }
 
     (void)xpt_read12(XPT_X);
-    const uint16_t raw_x = median3(xpt_read12(XPT_X), xpt_read12(XPT_X), xpt_read12(XPT_X));
+    const uint16_t rx = median3(xpt_read12(XPT_X), xpt_read12(XPT_X), xpt_read12(XPT_X));
     (void)xpt_read12(XPT_Y);
-    const uint16_t raw_y = median3(xpt_read12(XPT_Y), xpt_read12(XPT_Y), xpt_read12(XPT_Y));
+    const uint16_t ry = median3(xpt_read12(XPT_Y), xpt_read12(XPT_Y), xpt_read12(XPT_Y));
     gpio_set_level(BOARD_TOUCH_CS, 1);
 
+    int16_t px = 0;
+    int16_t py = 0;
+    map_touch(rx, ry, &px, &py);
+    if (raw_x != NULL) {
+        *raw_x = rx;
+    }
+    if (raw_y != NULL) {
+        *raw_y = ry;
+    }
+    if (x != NULL) {
+        *x = px;
+    }
+    if (y != NULL) {
+        *y = py;
+    }
+    touch_log(irq, z1, z2, z, rx, ry, px, py);
+    return true;
+}
+
+bool board_touch_read(int16_t *x, int16_t *y)
+{
+    return board_touch_sample(NULL, NULL, x, y);
+}
+
+static bool touch_span_ok(uint16_t a, uint16_t b)
+{
+    uint16_t lo = a < b ? a : b;
+    uint16_t hi = a < b ? b : a;
+    return (uint16_t)(hi - lo) >= 200;
+}
+
+static void touch_cal_apply(uint16_t x0, uint16_t x1, uint16_t y0, uint16_t y1)
+{
+    s_x_min = x0 < x1 ? x0 : x1;
+    s_x_max = x0 < x1 ? x1 : x0;
+    s_y_min = y0 < y1 ? y0 : y1;
+    s_y_max = y0 < y1 ? y1 : y0;
+}
+
+static void touch_cal_load(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(TOUCH_NVS_NS, NVS_READONLY, &h) != ESP_OK) {
+        return;
+    }
+    uint16_t xy[4];
+    size_t n = sizeof(xy);
+    esp_err_t err = nvs_get_blob(h, TOUCH_NVS_KEY, xy, &n);
+    nvs_close(h);
+    if (err != ESP_OK || n != sizeof(xy) || !touch_span_ok(xy[0], xy[1]) || !touch_span_ok(xy[2], xy[3])) {
+        return;
+    }
+    touch_cal_apply(xy[0], xy[1], xy[2], xy[3]);
+    ESP_LOGI(TAG, "toque nvs x=%u..%u y=%u..%u", s_x_min, s_x_max, s_y_min, s_y_max);
+}
+
+esp_err_t board_touch_cal_corners(uint16_t rx_tl, uint16_t ry_tl, uint16_t rx_br, uint16_t ry_br)
+{
 #if BOARD_TOUCH_SWAP_XY
-    int px = map_range((int)raw_y, BOARD_TOUCH_Y_MIN, BOARD_TOUCH_Y_MAX, BOARD_LCD_H - 1);
-    int py = map_range((int)raw_x, BOARD_TOUCH_X_MIN, BOARD_TOUCH_X_MAX, BOARD_LCD_V - 1);
+    uint16_t x_tl = ry_tl;
+    uint16_t x_br = ry_br;
+    uint16_t y_tl = rx_tl;
+    uint16_t y_br = rx_br;
 #else
-    int px = map_range((int)raw_x, BOARD_TOUCH_X_MIN, BOARD_TOUCH_X_MAX, BOARD_LCD_H - 1);
-    int py = map_range((int)raw_y, BOARD_TOUCH_Y_MIN, BOARD_TOUCH_Y_MAX, BOARD_LCD_V - 1);
+    uint16_t x_tl = rx_tl;
+    uint16_t x_br = rx_br;
+    uint16_t y_tl = ry_tl;
+    uint16_t y_br = ry_br;
 #endif
 #if BOARD_TOUCH_INV_X
-    px = (BOARD_LCD_H - 1) - px;
+    uint16_t x0 = x_br;
+    uint16_t x1 = x_tl;
+#else
+    uint16_t x0 = x_tl;
+    uint16_t x1 = x_br;
 #endif
 #if BOARD_TOUCH_INV_Y
-    py = (BOARD_LCD_V - 1) - py;
+    uint16_t y0 = y_br;
+    uint16_t y1 = y_tl;
+#else
+    uint16_t y0 = y_tl;
+    uint16_t y1 = y_br;
 #endif
+    if (!touch_span_ok(x0, x1) || !touch_span_ok(y0, y1)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TOUCH_NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    uint16_t xy[4] = {x0, x1, y0, y1};
+    err = nvs_set_blob(h, TOUCH_NVS_KEY, xy, sizeof(xy));
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    touch_cal_apply(x0, x1, y0, y1);
+    ESP_LOGI(TAG, "toque calibrado x=%u..%u y=%u..%u", s_x_min, s_x_max, s_y_min, s_y_max);
+    return ESP_OK;
+}
 
-    if (px < 0) {
-        px = 0;
+void board_touch_cal_reset(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(TOUCH_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        (void)nvs_erase_key(h, TOUCH_NVS_KEY);
+        (void)nvs_commit(h);
+        nvs_close(h);
     }
-    if (py < 0) {
-        py = 0;
-    }
-    if (px >= BOARD_LCD_H) {
-        px = BOARD_LCD_H - 1;
-    }
-    if (py >= BOARD_LCD_V) {
-        py = BOARD_LCD_V - 1;
-    }
-    *x = (int16_t)px;
-    *y = (int16_t)py;
-    touch_log(irq, z1, z2, z, raw_x, raw_y, *x, *y);
-    return true;
+    s_x_min = BOARD_TOUCH_X_MIN;
+    s_x_max = BOARD_TOUCH_X_MAX;
+    s_y_min = BOARD_TOUCH_Y_MIN;
+    s_y_max = BOARD_TOUCH_Y_MAX;
 }
 
 static void touch_init(void)

@@ -54,4 +54,4 @@ configure_file(
 idf_component_register(SRCS "board.c"
                     INCLUDE_DIRS "include" "${_rbn_gen_dir}"
                     REQUIRES driver esp_lcd esp_common esp_hw_support
-                    PRIV_REQUIRES mbedtls)
+                    PRIV_REQUIRES mbedtls nvs_flash)
