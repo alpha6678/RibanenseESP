@@ -33,33 +33,35 @@ Comandos:
   ports                        Lista portas seriais (marca a CH340)
   build                        Compila o OS (espelho C:\fw)
   flash [COM] [--primeiro|--zero]
-                               Compila e grava o OS (detecta CH340)
+                               Compila e grava o OS. --primeiro apaga a flash.
+                               --zero tambem formata o cartao no 1o boot.
   monitor [COM]                Serial do IDF, sem recompilar (Ctrl+C sai)
   app build <Slug>             Compila um app em firmware/apps
   app flash <Slug> [COM]       Grava o app no chip (substitui o OS)
   bump os|<Slug> [patch|minor|major]
-  publish os|<Slug>|all [--dry-run] [-Yes]
-                               App do cartao: recusa category/subcategory
-                               fora de catalog/app-taxonomy.json
-  release os|<Slug> <semver>
+                               Sobe a versao no JSON (padrao: patch)
+  publish os|<Slug>            Pacote local em artifacts/ (sem tag nem GitHub)
+  publish all [--dry-run] [-Yes]
+                               Publica o OS e os apps do catalogo que mudaram
+                               desde a ultima versao. --dry-run so mostra o
+                               plano. -Yes publica sem perguntar.
+  release os|<Slug> <semver>   Tag, GitHub Release e ponteiro. App precisa
+                               estar em catalog/esp-catalog.json.
   keygen                       Gera chave ECDSA P-256 em secrets/
   sign                         Assina firmware.json com o SHA atual
   verify                       Verifica a assinatura de firmware.json
-  check [--atualizar-baseline] Gates de saude sem placa: taxonomia de apps,
-                               memoria estatica contra o baseline, tamanho
-                               contra o slot, sdkconfig, pilhas e versao
-  ota check [ip]               Refaz o OTA em terra: manifesto, assinatura,
-                               SHA256 e versao dentro do binario publicado
-  ota ensaio <ip>              Manda a placa baixar o binario inteiro pelo
-                               GitHub e descartar; mede o menor bloco livre
-  recuperacao <letra:>         Acrescenta a imagem publicada ao anel de ate
-                               10 pontos no microSD; a placa escolhe a versao
-                               em Configuracoes > Restaurar do cartao
+  check [--atualizar-baseline] Gates de saude sem placa
+  ota check [ip]               Confere manifesto, assinatura, SHA e versao
+                               do binario publicado
+  ota ensaio <ip>              A placa baixa o binario e descarta; mede o
+                               menor bloco livre
+  recuperacao <letra:>         Copia a imagem publicada para o microSD
+                               (Configuracoes > Restaurar do cartao)
   logs [ip]                    GET /log da placa na LAN
-  tela [COM] [arquivo.bmp]     Captura a tela pela UART (feche o monitor antes)
+  tela [COM] [arquivo.bmp]     Captura a tela pela UART (feche o monitor)
   toque [COM] X Y              Injeta um toque
   arrasto [COM] X1 Y1 X2 Y2    Injeta um arrasto
-  clean [espelho]              Remove artifacts/ (e o build do espelho C:\fw)
+  clean [espelho]              Remove artifacts/ (espelho tambem limpa C:\fw)
   install [user|session]       Shim rbesp/rb no PATH
 
 Primeiro USB (placa nova ou recuperacao):
@@ -562,24 +564,38 @@ function Invoke-Bump {
     Write-Host "$Target $($m.version) -> $next"
 }
 
+function Get-CatalogAppIds {
+    $path = Join-Path $ProjectRoot 'catalog\esp-catalog.json'
+    if (-not (Test-Path -LiteralPath $path)) { return @() }
+    $doc = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+    return @($doc.apps | ForEach-Object { [string] $_.id })
+}
+
 function Get-PublishPlan {
-    $plan = @()
+    $items = @()
+    $skipped = @()
     $osTag = Get-LatestTagForPrefix -Prefix 'ribanense-esp-v'
     if (Test-ChangedSinceTag -Tag $osTag -Prefixes @('firmware/ribanense-esp/', 'firmware/esp-sdk/') -Exclude @('firmware/ribanense-esp/firmware.json', 'firmware/ribanense-esp/dist/*')) {
         $cur = if ($osTag -match '(\d+\.\d+\.\d+)$') { $Matches[1] } else { [string] (Get-OsVersionInfo -ProjectRoot $ProjectRoot).version }
-        $plan += [pscustomobject]@{ Kind = 'os'; Name = 'OS'; Current = $cur; Next = (Get-NextSemver $cur 'patch'); Reason = $(if ($osTag) { "mudou desde $osTag" } else { 'sem tag anterior' }) }
+        $items += [pscustomobject]@{ Kind = 'os'; Name = 'OS'; Current = $cur; Next = (Get-NextSemver $cur 'patch'); Reason = $(if ($osTag) { "mudou desde $osTag" } else { 'sem tag anterior' }) }
     }
+    $catIds = @(Get-CatalogAppIds)
     foreach ($d in Get-EspApps) {
         $m = Get-Content -LiteralPath (Join-Path $d.FullName 'app.json') -Raw | ConvertFrom-Json
+        $id = [string] $m.id
+        if (-not $id -or $catIds -notcontains $id) {
+            $skipped += [pscustomobject]@{ Name = $d.Name; Id = $id; Reason = 'fora do catalogo' }
+            continue
+        }
         $prefix = if ($m.githubTagPrefix) { [string] $m.githubTagPrefix } else { "esp-$($d.Name.ToLowerInvariant())-v" }
         $tag = Get-LatestTagForPrefix -Prefix $prefix
         $paths = @("firmware/apps/$($d.Name)/", 'firmware/esp-sdk/')
         if (Test-ChangedSinceTag -Tag $tag -Prefixes $paths -Exclude @('firmware/esp-sdk/components/board/include/ribanense_esp_version.h*')) {
             $cur = [string] $m.version
-            $plan += [pscustomobject]@{ Kind = 'esp-app'; Name = $d.Name; Current = $cur; Next = (Get-NextSemver $cur 'patch'); Reason = $(if ($tag) { "mudou desde $tag" } else { 'sem tag anterior' }) }
+            $items += [pscustomobject]@{ Kind = 'esp-app'; Name = $d.Name; Current = $cur; Next = (Get-NextSemver $cur 'patch'); Reason = $(if ($tag) { "mudou desde $tag" } else { 'sem tag anterior' }) }
         }
     }
-    return $plan
+    return [pscustomobject]@{ Items = $items; Skipped = $skipped }
 }
 
 function Invoke-PublishAll {
@@ -587,15 +603,20 @@ function Invoke-PublishAll {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw "git nao encontrado." }
     if (-not $DryRun -and -not (Get-Command gh -ErrorAction SilentlyContinue)) { throw "gh nao encontrado." }
     & git -C $ProjectRoot fetch --tags 2>$null | Out-Null
-    $plan = @(Get-PublishPlan)
-    if ($plan.Count -eq 0) {
+    $plan = Get-PublishPlan
+    $items = @($plan.Items)
+    $skipped = @($plan.Skipped)
+    foreach ($i in $items) {
+        Write-Host ("{0,-12} {1} -> {2}  ({3})" -f $i.Name, $i.Current, $i.Next, $i.Reason)
+    }
+    foreach ($s in $skipped) {
+        Write-Host ("{0,-12} pulado  ({1})" -f $s.Name, $s.Reason)
+    }
+    if ($items.Count -eq 0) {
         Write-Host "Nada para publicar."
         return
     }
-    foreach ($i in $plan) {
-        Write-Host ("{0,-12} {1} -> {2}  ({3})" -f $i.Name, $i.Current, $i.Next, $i.Reason)
-    }
-    if (@($plan | Where-Object { $_.Kind -eq 'esp-app' }).Count -gt 0) {
+    if (@($items | Where-Object { $_.Kind -eq 'esp-app' }).Count -gt 0) {
         Test-AppTaxonomy -ProjectRoot $ProjectRoot
         Write-Host "Taxonomia de apps ok." -ForegroundColor Green
     }
@@ -605,7 +626,7 @@ function Invoke-PublishAll {
         if ($ans -notin @('s', 'S', 'y', 'Y', 'sim')) { throw "Cancelado." }
     }
     $verFiles = @()
-    foreach ($i in $plan) {
+    foreach ($i in $items) {
         if ($i.Kind -eq 'os') {
             $verFiles += Set-OsVersionInfo -ProjectRoot $ProjectRoot -Version $i.Next
         } else {
@@ -622,8 +643,26 @@ function Invoke-PublishAll {
             & git push origin HEAD
         }
     } finally { Pop-Location }
-    foreach ($i in $plan) {
-        & (Join-Path $ScriptRoot 'release.ps1') -App $i.Name -Version $i.Next
+    $ok = [System.Collections.Generic.List[string]]::new()
+    $fail = [System.Collections.Generic.List[object]]::new()
+    foreach ($i in $items) {
+        try {
+            & (Join-Path $ScriptRoot 'release.ps1') -App $i.Name -Version $i.Next
+            if ($LASTEXITCODE) { throw "release.ps1 saiu com codigo $LASTEXITCODE." }
+            $ok.Add($i.Name)
+        } catch {
+            Write-Host "[!!] $($i.Name): $($_.Exception.Message)" -ForegroundColor Yellow
+            $fail.Add([pscustomobject]@{ Name = $i.Name; Error = $_.Exception.Message })
+        }
+    }
+    if ($ok.Count -gt 0) {
+        Write-Host ("Publicado: {0}" -f ($ok -join ', ')) -ForegroundColor Green
+    }
+    if ($fail.Count -gt 0) {
+        foreach ($f in $fail) {
+            Write-Host ("Falhou: {0} — {1}" -f $f.Name, $f.Error) -ForegroundColor Yellow
+        }
+        throw "publish all terminou com $($fail.Count) falha(s)."
     }
 }
 

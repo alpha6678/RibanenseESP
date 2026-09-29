@@ -68,6 +68,15 @@ if ($Version -match '^\d+\.\d+$') {
 }
 
 $kind = Get-ReleaseKind -Name $App
+if ($kind -eq 'esp-app') {
+    $manifest = Get-Content -LiteralPath (Join-Path $ProjectRoot "firmware\apps\$App\app.json") -Raw | ConvertFrom-Json
+    $catPath = Join-Path $ProjectRoot 'catalog\esp-catalog.json'
+    $catRaw = if (Test-Path -LiteralPath $catPath) { Get-Content -LiteralPath $catPath -Raw } else { '' }
+    $appId = [string] $manifest.id
+    if (-not $appId -or $catRaw -notmatch [regex]::Escape($appId)) {
+        throw "App '$appId' nao esta em catalog/esp-catalog.json. Inclua o id no catalogo antes de publicar."
+    }
+}
 if (-not $TagPrefix) {
     $TagPrefix = switch ($kind) {
         'os' { 'ribanense-esp-v' }
@@ -153,16 +162,16 @@ try {
         $distDir = Join-Path $ProjectRoot 'catalog\dist'
         New-Item -ItemType Directory -Force -Path $distDir | Out-Null
         $slug = if ($m.id -match '([^.]+)$') { $Matches[1] } else { $App.ToLowerInvariant() }
+        $raw = Get-Content -LiteralPath $cat -Raw
+        $id = [regex]::Escape([string] $m.id)
+        if ($raw -notmatch $id) {
+            throw "App '$($m.id)' nao esta em catalog/esp-catalog.json. Inclua o id no catalogo antes de publicar."
+        }
         Get-ChildItem -LiteralPath $distDir -Filter "esp-$slug-*.zip" -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -ne $assetBaseName } |
             Remove-Item -Force
         Copy-Item -LiteralPath $assetPath -Destination (Join-Path $distDir $assetBaseName) -Force
         $url = "https://raw.githubusercontent.com/$($gh.Owner)/$($gh.Repo)/main/catalog/dist/$assetBaseName"
-        $raw = Get-Content -LiteralPath $cat -Raw
-        $id = [regex]::Escape([string] $m.id)
-        if ($raw -notmatch $id) {
-            throw "App '$($m.id)' nao esta em catalog/esp-catalog.json."
-        }
         $doc = $raw | ConvertFrom-Json
         $hit = $false
         foreach ($entry in $doc.apps) {
