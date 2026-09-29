@@ -1,5 +1,6 @@
 #include "ui.h"
 #include "board.h"
+#include "link.h"
 #include "board_pins.h"
 #include "net.h"
 #include "ota.h"
@@ -48,6 +49,8 @@ static lv_obj_t *s_splash;
 static lv_obj_t *s_wait;
 static uint8_t s_spin_i;
 static uint8_t s_wait_back;
+/* 1 = ligar normal, segura o logo 3 s. 0 = volta de app. */
+static uint8_t s_splash_hold;
 static lv_obj_t *s_home;
 static lv_obj_t *s_settings;
 static lv_obj_t *s_wifi;
@@ -98,6 +101,19 @@ static uint8_t s_bright_draft = 100;
 static lv_obj_t *s_recover;
 static lv_obj_t *s_recover_list;
 static lv_obj_t *s_recover_status;
+static lv_obj_t *s_detail;
+static int s_detail_idx;
+static lv_obj_t *s_cal;
+static lv_obj_t *s_cal_lab;
+static lv_obj_t *s_cal_mark;
+static uint8_t s_cal_step;
+static uint8_t s_cal_saw;
+static uint16_t s_cal_rx;
+static uint16_t s_cal_ry;
+static uint16_t s_cal_tlx;
+static uint16_t s_cal_tly;
+static int16_t s_cal_px;
+static int16_t s_cal_py;
 
 static void show_wifi(void);
 static void show_home(void);
@@ -109,6 +125,12 @@ static void build_settings(void);
 static void show_brightness(void);
 static void destroy_brightness(void);
 static void show_store(void);
+static void show_detail(int idx);
+static void destroy_detail(void);
+static void show_cal(void);
+static void destroy_cal(void);
+static void on_cal_factory(lv_event_t *e);
+static void cal_poll(void);
 static void show_recover(void);
 static void destroy_recover(void);
 static void show_content(void);
@@ -145,6 +167,9 @@ static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px)
     (void)disp;
     const int32_t w = lv_area_get_width(area);
     const int32_t h = lv_area_get_height(area);
+    if (link_shot_active()) {
+        link_shot_rect((int)area->x1, (int)area->y1, (int)w, (int)h, px);
+    }
     lv_draw_sw_rgb565_swap(px, (uint32_t)(w * h));
     esp_lcd_panel_draw_bitmap(board_lcd(), area->x1, area->y1, area->x2 + 1, area->y2 + 1, px);
 }
@@ -152,6 +177,15 @@ static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px)
 static void touch_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
     (void)indev;
+    int16_t ix = 0;
+    int16_t iy = 0;
+    bool down = false;
+    if (link_pointer(&ix, &iy, &down)) {
+        data->point.x = ix;
+        data->point.y = iy;
+        data->state = down ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+        return;
+    }
     int16_t x = 0;
     int16_t y = 0;
     if (board_touch_read(&x, &y)) {
@@ -330,6 +364,9 @@ static const char *wait_store_text(const char *msg)
     }
     if (msg != NULL && strcmp(msg, "instalando...") == 0) {
         return "instalando o app...";
+    }
+    if (msg != NULL && strcmp(msg, "removendo...") == 0) {
+        return "removendo o app...";
     }
     return msg != NULL ? msg : "";
 }
@@ -580,6 +617,8 @@ static void ota_poll(void)
     lv_color_t color = ui_color_white();
     if (st == OTA_ERR) {
         color = ui_color_red();
+    } else if (st == OTA_OFFER) {
+        color = ui_color_blue();
     } else if (st == OTA_OK_REBOOT || (st == OTA_IDLE && strncmp(msg, "atual", 5) == 0)) {
         /* A mensagem carrega a versao do manifesto ("atual: 0.4.0"). */
         color = ui_color_green();
@@ -603,8 +642,8 @@ static void store_poll(void)
     const char *msg = store_message();
     if (s_store_status != NULL &&
         (st == STORE_BUSY || st == STORE_ERR ||
-         (st == STORE_IDLE && (strcmp(msg, "instalado") == 0 || strcmp(msg, "catalogo ok") == 0 ||
-                               strcmp(msg, "catalogo vazio") == 0)))) {
+         (st == STORE_IDLE && (strcmp(msg, "instalado") == 0 || strcmp(msg, "removido") == 0 ||
+                               strcmp(msg, "catalogo ok") == 0 || strcmp(msg, "catalogo vazio") == 0)))) {
         lv_color_t color = ui_color_white();
         if (st == STORE_ERR) {
             color = ui_color_red();
@@ -1023,11 +1062,16 @@ static void on_remote_click(lv_event_t *e)
     if (app == NULL || app->id[0] == 0) {
         return;
     }
-    if (net_sta_state() != NET_STA_GOT_IP) {
-        set_store_status("sem rede", ui_color_red());
+    show_detail(idx);
+}
+
+static void on_inbox_click(lv_event_t *e)
+{
+    (void)e;
+    if (store_state() == STORE_BUSY) {
         return;
     }
-    store_install_start(app->id);
+    store_inbox_start();
 }
 
 static void on_store_open_cat(lv_event_t *e)
@@ -1097,6 +1141,9 @@ static void fill_store_list(void)
         char sum[24];
         snprintf(sum, sizeof(sum), "%d apps", s_remote_n);
         set_store_status(sum, ui_color_green());
+        if (store_inbox_ready()) {
+            (void)list_row(s_store_list, "Instalar do cartao", ui_color_blue(), on_inbox_click, NULL);
+        }
         const uint8_t ncat = app_tax_cat_count();
         for (uint8_t c = 0; c < ncat; c++) {
             if (!store_has_cat(c)) {
@@ -1134,11 +1181,18 @@ static void fill_store_list(void)
         if (!store_app_visible(app)) {
             continue;
         }
+        const char *tag = app->version;
+        lv_color_t color = ui_color_white();
+        if (app->rel == 1) {
+            tag = "ok";
+            color = ui_color_green();
+        } else if (app->rel == 2) {
+            tag = "nova";
+            color = ui_color_blue();
+        }
         char line[80];
-        snprintf(line, sizeof(line), "%s  %s", app->name,
-                 app->installed ? "ok" : app->version);
-        (void)list_row(s_store_list, line, app->installed ? ui_color_green() : ui_color_white(),
-                       on_remote_click, (void *)(uintptr_t)i);
+        snprintf(line, sizeof(line), "%s  %s", app->name, tag);
+        (void)list_row(s_store_list, line, color, on_remote_click, (void *)(uintptr_t)i);
     }
 }
 
@@ -1718,6 +1772,240 @@ static void show_wifi(void)
     }
 }
 
+static void destroy_detail(void)
+{
+    if (s_detail) {
+        lv_obj_t *old = s_detail;
+        s_detail = NULL;
+        lv_obj_delete_async(old);
+    }
+}
+
+static void on_detail_back(lv_event_t *e)
+{
+    (void)e;
+    if (s_store != NULL) {
+        lv_screen_load(s_store);
+    }
+    destroy_detail();
+}
+
+static void detail_run(bool remove)
+{
+    const store_remote_t *app = store_catalog_at(s_detail_idx);
+    if (app == NULL || app->id[0] == 0 || store_state() == STORE_BUSY) {
+        return;
+    }
+    if (!remove && net_sta_state() != NET_STA_GOT_IP) {
+        return;
+    }
+    char id[STORE_ID_MAX];
+    strncpy(id, app->id, sizeof(id) - 1);
+    id[sizeof(id) - 1] = 0;
+    if (s_store != NULL) {
+        lv_screen_load(s_store);
+    }
+    destroy_detail();
+    if (remove) {
+        store_remove_start(id);
+    } else {
+        store_install_start(id);
+    }
+}
+
+static void on_detail_install(lv_event_t *e)
+{
+    (void)e;
+    detail_run(false);
+}
+
+static void on_detail_remove(lv_event_t *e)
+{
+    (void)e;
+    detail_run(true);
+}
+
+static void show_detail(int idx)
+{
+    const store_remote_t *app = store_catalog_at(idx);
+    if (app == NULL) {
+        return;
+    }
+    destroy_detail();
+    s_detail_idx = idx;
+    s_detail = lv_obj_create(NULL);
+    style_screen(s_detail);
+    (void)make_chrome(s_detail, app->name, on_detail_back, NULL);
+
+    char author[40];
+    char desc[120];
+    char logb[120];
+    author[0] = 0;
+    desc[0] = 0;
+    logb[0] = 0;
+    (void)store_catalog_blurb(app->id, author, sizeof(author), desc, sizeof(desc), logb, sizeof(logb));
+
+    char head[72];
+    const char *state = "instalar";
+    if (app->rel == 1) {
+        state = "instalado";
+    } else if (app->rel == 2) {
+        state = "atualizar";
+    }
+    snprintf(head, sizeof(head), "%s  %s", app->version, state);
+    lv_obj_t *hl = lv_label_create(s_detail);
+    lv_label_set_text(hl, head);
+    lv_obj_set_style_text_color(hl, app->rel == 2 ? ui_color_blue() : ui_color_white(), 0);
+
+    if (author[0] != 0) {
+        lv_obj_t *al = lv_label_create(s_detail);
+        lv_label_set_text(al, author);
+        lv_obj_set_style_text_color(al, ui_color_white(), 0);
+    }
+    if (desc[0] != 0) {
+        lv_obj_t *dl = lv_label_create(s_detail);
+        lv_label_set_long_mode(dl, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(dl, lv_pct(100));
+        lv_label_set_text(dl, desc);
+        lv_obj_set_style_text_color(dl, ui_color_white(), 0);
+    }
+    if (logb[0] != 0) {
+        lv_obj_t *ll = lv_label_create(s_detail);
+        lv_label_set_long_mode(ll, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(ll, lv_pct(100));
+        lv_label_set_text(ll, logb);
+        lv_obj_set_style_text_color(ll, ui_color_white(), 0);
+    }
+
+    lv_obj_t *list = make_scroll_list(s_detail);
+    const char *act = "Instalar";
+    if (app->rel == 2) {
+        act = "Atualizar";
+    } else if (app->rel == 1) {
+        act = "Reinstalar";
+    }
+    (void)list_row(list, act, ui_color_white(), on_detail_install, NULL);
+    if (app->installed) {
+        (void)list_row(list, "Desinstalar", ui_color_red(), on_detail_remove, NULL);
+    }
+    lv_screen_load(s_detail);
+}
+
+static void destroy_cal(void)
+{
+    s_cal_saw = 0;
+    s_cal_step = 0;
+    if (s_cal) {
+        lv_obj_t *old = s_cal;
+        s_cal = NULL;
+        s_cal_lab = NULL;
+        s_cal_mark = NULL;
+        lv_obj_delete_async(old);
+    }
+}
+
+static void cal_place_mark(void)
+{
+    if (s_cal_mark == NULL) {
+        return;
+    }
+    if (s_cal_step == 0) {
+        lv_obj_align(s_cal_mark, LV_ALIGN_TOP_LEFT, 8, 8);
+    } else {
+        lv_obj_align(s_cal_mark, LV_ALIGN_BOTTOM_RIGHT, -8, -8);
+    }
+}
+
+static void on_cal_cancel(lv_event_t *e)
+{
+    (void)e;
+    show_settings();
+    destroy_cal();
+}
+
+static void show_cal(void)
+{
+    destroy_cal();
+    s_cal = lv_obj_create(NULL);
+    style_screen(s_cal);
+    s_cal_mark = lv_label_create(s_cal);
+    lv_label_set_text(s_cal_mark, "+");
+    lv_obj_set_style_text_font(s_cal_mark, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(s_cal_mark, ui_color_blue(), 0);
+    lv_obj_add_flag(s_cal_mark, LV_OBJ_FLAG_FLOATING);
+    lv_obj_add_flag(s_cal_mark, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    cal_place_mark();
+
+    s_cal_lab = lv_label_create(s_cal);
+    lv_label_set_long_mode(s_cal_lab, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_cal_lab, lv_pct(100));
+    lv_label_set_text(s_cal_lab, "Toque o + no canto superior esquerdo");
+    lv_obj_set_style_text_align(s_cal_lab, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(s_cal_lab, ui_color_white(), 0);
+
+    (void)list_row(s_cal, "Cancelar", ui_color_white(), on_cal_cancel, NULL);
+    (void)list_row(s_cal, "Toque de fabrica", ui_color_white(), on_cal_factory, NULL);
+    lv_screen_load(s_cal);
+}
+
+static void on_cal_factory(lv_event_t *e)
+{
+    (void)e;
+    board_touch_cal_reset();
+    if (s_cal_lab != NULL) {
+        lv_label_set_text(s_cal_lab, "fabrica de novo");
+    }
+}
+
+static void cal_poll(void)
+{
+    if (s_cal == NULL) {
+        return;
+    }
+    uint16_t rx = 0;
+    uint16_t ry = 0;
+    int16_t px = 0;
+    int16_t py = 0;
+    if (!board_touch_sample(&rx, &ry, &px, &py)) {
+        if (!s_cal_saw) {
+            return;
+        }
+        s_cal_saw = 0;
+        px = s_cal_px;
+        py = s_cal_py;
+        bool corner = s_cal_step == 0 ? (px < 80 && py < 80) : (px > BOARD_LCD_H - 80 && py > BOARD_LCD_V - 80);
+        if (!corner) {
+            return;
+        }
+        if (s_cal_step == 0) {
+            s_cal_tlx = s_cal_rx;
+            s_cal_tly = s_cal_ry;
+            s_cal_step = 1;
+            cal_place_mark();
+            if (s_cal_lab != NULL) {
+                lv_label_set_text(s_cal_lab, "Toque o + no canto inferior direito");
+            }
+            return;
+        }
+        if (board_touch_cal_corners(s_cal_tlx, s_cal_tly, s_cal_rx, s_cal_ry) != ESP_OK) {
+            s_cal_step = 0;
+            cal_place_mark();
+            if (s_cal_lab != NULL) {
+                lv_label_set_text(s_cal_lab, "pontos perto demais, de novo no canto superior");
+            }
+            return;
+        }
+        show_settings();
+        destroy_cal();
+        return;
+    }
+    s_cal_rx = rx;
+    s_cal_ry = ry;
+    s_cal_px = px;
+    s_cal_py = py;
+    s_cal_saw = 1;
+}
+
 static void destroy_store(void)
 {
     s_store_live = false;
@@ -1802,6 +2090,8 @@ static void show_home(void)
     destroy_pass();
     destroy_info();
     destroy_store();
+    destroy_detail();
+    destroy_cal();
     destroy_recover();
     destroy_brightness();
     destroy_content();
@@ -1999,15 +2289,26 @@ static void on_open_brightness(lv_event_t *e)
     show_brightness();
 }
 
+static void on_open_cal(lv_event_t *e)
+{
+    (void)e;
+    show_cal();
+}
+
 static void on_open_ota(lv_event_t *e)
 {
     (void)e;
+    if (ota_state() == OTA_OFFER) {
+        set_home_ota("gravando...", ui_color_white());
+        ota_pull_start();
+        return;
+    }
     if (net_sta_state() != NET_STA_GOT_IP) {
         set_home_ota("sem rede", ui_color_red());
         return;
     }
     set_home_ota("buscando...", ui_color_white());
-    ota_pull_start();
+    ota_offer_start();
 }
 
 static void on_open_store(lv_event_t *e)
@@ -2195,6 +2496,14 @@ static void build_settings(void)
     lv_obj_set_style_text_color(brl, ui_color_white(), 0);
     label_left(brl);
 
+    lv_obj_t *cal = lv_button_create(list);
+    ui_style_row(cal);
+    lv_obj_add_event_cb(cal, on_open_cal, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *call = lv_label_create(cal);
+    lv_label_set_text(call, "Calibrar toque");
+    lv_obj_set_style_text_color(call, ui_color_white(), 0);
+    label_left(call);
+
     lv_obj_t *upd = lv_button_create(list);
     ui_style_row(upd);
     lv_obj_add_event_cb(upd, on_open_ota, LV_EVENT_CLICKED, NULL);
@@ -2219,6 +2528,10 @@ static void build_settings(void)
 
 esp_err_t ui_boot_begin(void)
 {
+    s_splash_hold = shell_take_app_return() ? 0 : 1;
+    if (s_splash_hold == 0) {
+        ESP_LOGI(TAG, "retorno do app: logo sem espera");
+    }
     lv_init();
 
     const size_t buf_sz = (size_t)BOARD_LCD_H * BUF_LINES * sizeof(uint16_t);
@@ -2303,7 +2616,11 @@ static bool splash_may_leave(void)
     if (s_splash == NULL || s_home == NULL || !ota_recover_boot_done()) {
         return false;
     }
-    /* lv_tick comeca em ui_boot_begin; 3 s sem int64 extra na DRAM. */
+    /* lv_tick comeca em ui_boot_begin; 3 s sem int64 extra na DRAM.
+     * Volta de app nao espera: o flag ja foi consumido em ui_boot_begin. */
+    if (s_splash_hold == 0) {
+        return true;
+    }
     return lv_tick_get() >= (uint32_t)(UI_SPLASH_HOLD_US / 1000);
 }
 
@@ -2341,13 +2658,32 @@ esp_err_t ui_init(void)
 {
     build_home();
     ota_health_tick();
-    if (ota_recover_boot_done()) {
+    if (ota_recover_boot_done() && s_splash_hold == 0) {
+        ESP_LOGI(TAG, "UI montada, retorno sem espera do logo");
+    } else if (ota_recover_boot_done()) {
         ESP_LOGI(TAG, "UI montada, splash ate 3 s");
     } else {
         ESP_LOGI(TAG, "UI montada, splash ate o ponto de restauracao");
     }
     try_leave_splash();
     return ESP_OK;
+}
+
+static void link_shot_poll(void)
+{
+    if (!link_shot_pending() || s_disp == NULL) {
+        return;
+    }
+    esp_log_level_t prev = esp_log_level_get("*");
+    esp_log_level_set("*", ESP_LOG_NONE);
+    link_shot_begin(BOARD_LCD_H, BOARD_LCD_V);
+    lv_obj_t *scr = lv_screen_active();
+    if (scr != NULL) {
+        lv_obj_invalidate(scr);
+    }
+    lv_refr_now(s_disp);
+    link_shot_end();
+    esp_log_level_set("*", prev);
 }
 
 void ui_tick(void)
@@ -2358,5 +2694,7 @@ void ui_tick(void)
     wifi_poll();
     splash_poll();
     wait_poll();
+    cal_poll();
+    link_shot_poll();
     lv_timer_handler();
 }
