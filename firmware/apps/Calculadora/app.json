@@ -1,0 +1,12 @@
+{
+  "id": "com.ribanense.esp.calculadora",
+  "kind": "native",
+  "name": "Calculadora",
+  "publicName": "Calculadora",
+  "version": "0.1.0",
+  "minimumOsVersion": "0.6.0",
+  "entryBinary": "app.bin",
+  "category": "ferramentas",
+  "subcategory": "calculadora",
+  "githubTagPrefix": "esp-calculadora-v"
+}
