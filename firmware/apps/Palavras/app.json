@@ -6,10 +6,11 @@
   "author": "RibanenseESP",
   "description": "Lista de palavras em portugues para ler na tela.",
   "changelog": "0.1.0 primeira lista",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minimumOsVersion": "0.6.0",
   "entryContent": "content.json",
   "category": "ferramentas",
   "subcategory": "texto",
   "githubTagPrefix": "esp-palavras-v"
 }
+
