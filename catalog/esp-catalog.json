@@ -16,6 +16,50 @@
       "changelog": "0.1.0 primeira lista",
       "githubOwner": "alpha6678",
       "githubRepo": "RibanenseESP"
+    },
+    {
+      "id": "com.ribanense.esp.amostra",
+      "name": "Amostra",
+      "publicName": "Amostra",
+      "version": "0.1.0",
+      "minimumOsVersion": "0.6.0",
+      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-amostra-0.1.0.zip",
+      "sha256": "acc5a7a3671682c9713c141cf31411588ca7f8ba3abde51a4937e40c0f99bec4",
+      "category": "ferramentas",
+      "subcategory": "texto",
+      "description": "Exemplo de app de conteudo: uma lista e um texto.",
+      "author": "RibanenseESP",
+      "changelog": "0.1.0 exemplo",
+      "githubOwner": "alpha6678",
+      "githubRepo": "RibanenseESP"
+    },
+    {
+      "id": "com.ribanense.esp.leitor",
+      "name": "Leitor",
+      "publicName": "Leitor",
+      "version": "0.1.0",
+      "minimumOsVersion": "0.6.0",
+      "url": "",
+      "sha256": "",
+      "category": "ferramentas",
+      "subcategory": "texto",
+      "description": "Le um texto do cartao em paginas.",
+      "author": "RibanenseESP",
+      "changelog": "0.1.0 leitor nativo"
+    },
+    {
+      "id": "com.ribanense.esp.calculadora",
+      "name": "Calculadora",
+      "publicName": "Calculadora",
+      "version": "0.1.0",
+      "minimumOsVersion": "0.6.0",
+      "url": "",
+      "sha256": "",
+      "category": "ferramentas",
+      "subcategory": "calculadora",
+      "description": "Quatro operacoes, memoria e historico no cartao.",
+      "author": "RibanenseESP",
+      "changelog": "0.1.0 primeira versao"
     }
   ]
 }
