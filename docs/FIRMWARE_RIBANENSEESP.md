@@ -58,10 +58,12 @@ PNG/SVG/RLE/LZ4 — esses materializam o quadro na heap (vão do TLS).
 Splash: fundo preto, C ~160 px centrado (40 px de ar nas laterais), nome
 `celer` em Montserrat 24, barra (`lv_bar`) e texto pequeno no mesmo eixo
 central. A barra anda nos passos reais do boot (cartão, ajustes, rede) e
-na cópia do ponto; sem giro ASCII. Fica **no mínimo 3 s** em todo ligar;
-o boot não espera. Sai quando o ponto de restauração já decidiu **e** o
-relógio passou. Fora do boot (atualizar, restaurar, catálogo) a espera é
-só a barra e o texto, centrados, sem a marca.
+na cópia do ponto; sem giro ASCII. Fica **no mínimo 3 s** ao ligar a
+placa; o boot não espera esse relógio. Sai quando o ponto de restauração
+já decidiu **e**, no ligar normal, os 3 s passaram. Volta de um app
+(`shell_boot_os`) não espera os 3 s: a home entra assim que o ponto desta
+versão já está decidido. Fora do boot (atualizar, restaurar, catálogo) a
+espera é só a barra e o texto, centrados, sem a marca.
 
 Lista: **36 px**, sem caixa, filete azul de 3 px à esquerda e 8 px
 (~1,4 mm nesta 2,8" 240×320; 1 mm = 6 px) até o texto. Ícone só no
@@ -120,6 +122,11 @@ Calibração medida nesta E32R28T-1 (4 cantos + centro, 2026-09-03), em
 | `SWAP_XY` | 0 |
 | `INV_X` / `INV_Y` | 1 / 0 |
 
+**Configurações > Calibrar toque** pede o canto superior esquerdo e depois o
+inferior direito, grava os limites na NVS e passa a usar esses valores.
+**Toque de fabrica** volta à tabela acima. Sem essa gravação a placa continua
+na calibração de fábrica — um OTA não pede para calibrar de novo.
+
 ## Rede e OTA
 
 | Fase | Estado |
@@ -132,8 +139,11 @@ Calibração medida nesta E32R28T-1 (4 cantos + centro, 2026-09-03), em
 Após `GOT_IP` a UI volta à home. Em **Configurações** aparecem o ID
 `RBN-XXXXXX` (MAC), a senha LAN desta unidade, o item Wi-Fi (texto
 fixo; verde com IP, branco sem),
-**Brilho** (10–100%, passo 10; Voltar cancela, Salvar grava no cartão)
-e **Atualizar** (pull). SoftAP sozinho não alcança o GitHub.
+**Brilho** (10–100%, passo 10; Voltar cancela, Salvar grava no cartão),
+**Calibrar toque** e **Atualizar**. O primeiro toque em Atualizar só lê o
+manifesto. Se houver versão nova, o rótulo fica azul (`nova ...` ou
+`seguranca ...`, com o `changelog` do `firmware.json` quando ele existe).
+O segundo toque grava. SoftAP sozinho não alcança o GitHub.
 
 SSID/senha vivem na **NVS** (até 8 redes; `last` é a última que ganhou IP), com
 `/sdcard/os/wifi/networks.json` como espelho legível. Era o contrário, e o

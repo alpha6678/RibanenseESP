@@ -220,6 +220,18 @@ não fecha — rode antes de contar com uma atualização.
 rbesp logs 192.168.5.188
 rbesp log 192.168.5.188
 
+rbesp tela
+rbesp tela COM8 artifacts\tela.bmp
+rbesp toque 120 160
+rbesp toque COM8 120 160
+rbesp arrasto 40 40 200 280
+```
+
+`tela`, `toque` e `arrasto` usam a UART do CH340 sem pulsar DTR/RTS (não
+reiniciam a placa). Feche o `monitor` antes: a porta não abre duas vezes.
+`tela` grava um BMP (padrão `artifacts\tela.bmp`).
+
+```bat
 rbesp clean
 rbesp limpar
 rbesp clean espelho
@@ -277,6 +289,9 @@ um OTA a splash segura a home até o ponto desta versão estar no cartão
 | `ota check` | `ota`, `ota conferir` | `rbesp ota check [ip]` |
 | `recuperacao` | `recuperar`, `recovery` | `rbesp recuperacao <letra:>` |
 | `logs` | `log` | `rbesp logs <ip>` |
+| `tela` | — | `rbesp tela [COM] [arquivo.bmp]` |
+| `toque` | — | `rbesp toque [COM] X Y` |
+| `arrasto` | — | `rbesp arrasto [COM] X1 Y1 X2 Y2` |
 | `clean` | `limpar` | `rbesp clean [espelho]` |
 | `install` | `setup` | `rbesp install [user\|session]` |
 

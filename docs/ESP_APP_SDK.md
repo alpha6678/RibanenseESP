@@ -67,6 +67,9 @@ lista, e recusam slugs do `.c` diferentes do JSON.
 | `category` | sim | Slug da [`app-taxonomy.json`](../catalog/app-taxonomy.json) |
 | `subcategory` | se a categoria não for plana | Slug da subcategoria |
 | `githubTagPrefix` | sim | Prefixo da tag (`esp-<slug>-v`) |
+| `author` | não | Quem assina o app. A ficha da loja mostra se vier no catálogo. |
+| `description` | não | Uma frase. A ficha da loja mostra se vier no catálogo. |
+| `changelog` | não | Texto curto da versão. A ficha da loja mostra se vier no catálogo. |
 
 `content.json` é só o índice (lista de telas `list` ou `text`, cada uma
 apontando para `data/<arquivo>`). A massa não entra nesse JSON.
@@ -100,7 +103,13 @@ O OS lista até **8** apps na home e no Catálogo (`STORE_MAX_APPS`). Isso é te
 metadados na UI, não de pastas no cartão. A listagem lê um `app.json` por vez.
 A hierarquia não aumenta esse teto.
 
-A placa baixa o zip para `tmp`, confere SHA256 e extrai para `apps/<id>/`.
+A placa baixa o zip para `tmp`, confere SHA256 e extrai para `tmp/stage`.
+Só depois troca a pasta `apps/<id>/`. Toque no app abre a ficha (descrição,
+autor, changelog): Instalar, Atualizar se a versão do catálogo for maior,
+Reinstalar ou Desinstalar. Um zip em `/sdcard/inbox/` aparece como
+**Instalar do cartão** na raiz do Catálogo, sem rede. O release copia
+`description`, `author` e `changelog` do `app.json` para o catálogo quando
+existem.
 O corpo HTTP vai em chunks para o cartão; o ESP32 não usa o SD como RAM.
 Apps não devem gravar em `/sdcard/os/`.
 
@@ -115,13 +124,16 @@ tela. Não há `SW_CPU_RESET`.
 2. Faz stream de `app.bin` para o slot OTA inativo (chunks; nunca o arquivo na SRAM).
 3. Reinicia no app.
 4. O app chama `shell_boot_os()` (botão Voltar) e o bootloader volta ao OS
-   (home na raiz, não na pasta de onde saiu).
+   (home na raiz, não na pasta de onde saiu). O retorno grava um flag na
+   NVS (`rib_os` / `back`); o OS apaga esse flag no boot e não segura os
+   3 s do logo. A splash continua até o ponto de restauração estar decidido.
 
 OTA do OS só com a placa no OS. O app no SD não é apagado. `data/` não
 entra no slot.
 
-Exemplos no repositório: `firmware/apps/Amostra` (content) e
-`firmware/apps/Leitor` (nativo + `data/`).
+Exemplos no repositório: `firmware/apps/Amostra` (content),
+`firmware/apps/Leitor` (nativo + `data/`) e `firmware/apps/Calculadora`
+(nativo).
 
 ## UI
 
