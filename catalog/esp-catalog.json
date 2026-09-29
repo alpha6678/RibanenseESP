@@ -55,13 +55,15 @@
       "publicName": "Calculadora",
       "version": "0.1.0",
       "minimumOsVersion": "0.6.0",
-      "url": "",
-      "sha256": "",
+      "url": "https://raw.githubusercontent.com/alpha6678/RibanenseESP/main/catalog/dist/esp-calculadora-0.1.0.zip",
+      "sha256": "0730bfbfa95277cd8afd1990bdfec4120d9f034edc96642367ba20fa6587fbe7",
       "category": "ferramentas",
       "subcategory": "calculadora",
       "description": "Quatro operacoes, memoria e historico no cartao.",
       "author": "RibanenseESP",
-      "changelog": "0.1.0 primeira versao"
+      "changelog": "0.1.0 primeira versao",
+      "githubOwner": "alpha6678",
+      "githubRepo": "RibanenseESP"
     }
   ]
 }
