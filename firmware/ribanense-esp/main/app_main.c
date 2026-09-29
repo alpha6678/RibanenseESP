@@ -1,4 +1,5 @@
 #include "board.h"
+#include "link.h"
 #include "net.h"
 #include "nvs_flash.h"
 #include "ota.h"
@@ -26,6 +27,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ota_init());
 
     ESP_ERROR_CHECK(board_init());
+    link_start();
 
     /* Splash antes das etapas lentas: montar o cartao e subir o Wi-Fi levam
      * cerca de um segundo, e ate aqui a tela ficava apagada. A barra anda uma
