@@ -6,11 +6,12 @@
   "author": "RibanenseESP",
   "description": "Quatro operacoes, memoria e historico no cartao.",
   "changelog": "0.1.0 primeira versao",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minimumOsVersion": "0.6.0",
   "entryBinary": "app.bin",
   "category": "ferramentas",
   "subcategory": "calculadora",
   "githubTagPrefix": "esp-calculadora-v"
 }
+
 
